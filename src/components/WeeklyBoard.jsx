@@ -184,7 +184,7 @@ export default function WeeklyBoard({ userId, onLogout }) {
                                     <label style={{margin: 0}}>{kid.name}의 목표</label>
                                     <input 
                                         type="number" 
-                                        min="0" max="10" 
+                                        min="0" max="15" 
                                         value={targetMap[kid.id] || 0} 
                                         onChange={e => setTargetMap({...targetMap, [kid.id]: Number(e.target.value)})} 
                                         style={{width: '100px'}}
@@ -254,7 +254,7 @@ export default function WeeklyBoard({ userId, onLogout }) {
                                         <div key={kid.id} className="kid-row">
                                             <div className="kid-name">{kid.name}</div>
                                             <div className="stamps-container">
-                                                {Array.from({length: 10}).map((_, idx) => {
+                                                {Array.from({length: 15}).map((_, idx) => {
                                                     const existing = stampsForDay.find(s => s.stamp_index === idx)
                                                     const isFilled = !!existing
                                                     const isCoupon = isFilled && existing.is_coupon
