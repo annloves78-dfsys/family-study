@@ -8,7 +8,7 @@ const MAX_STAMPS = 15
 const KIDS = [
   { id: 'yoonseo', name: '윤서', icon: '👧' },
   { id: 'yeonwoo', name: '연우', icon: '👦' },
-  { id: 'yeontaek', name: '연택', icon: '🧑' },
+  { id: 'yeontaek', name: '연택', icon: '🧒' },
 ]
 
 // 로컬 타임존 기준 날짜 문자열 (YYYY-MM-DD)
