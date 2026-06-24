@@ -106,11 +106,18 @@ export const api = {
         saveLocal();
     },
     async addCustomEvent(userId, type, amount) {
+        if (supabase) {
+            await supabase.from('custom_events').insert([{ user_id: userId, event_type: type, amount: amount }]);
+        }
         localDb.custom_events = localDb.custom_events || [];
         localDb.custom_events.push({ id: Date.now(), user_id: userId, event_type: type, amount: amount, created_at: new Date().toISOString() });
         saveLocal();
     },
     async getCustomEvents(userId) {
+        if (supabase) {
+            const { data, error } = await supabase.from('custom_events').select('*').eq('user_id', userId);
+            if (data && !error) return data;
+        }
         return (localDb.custom_events || []).filter(e => e.user_id === userId);
     },
     async getStats(userId) {
