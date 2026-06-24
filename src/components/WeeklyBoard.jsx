@@ -41,7 +41,7 @@ export default function WeeklyBoard({ userId, onLogout }) {
   const [loading, setLoading] = useState(true)
   const [processing, setProcessing] = useState(new Set())
   const [batchHours, setBatchHours] = useState({}) 
-  const [couponModal, setCouponModal] = useState(null)
+  const [couponMode, setCouponMode] = useState({}) // { kidId: boolean }
 
   const weekDays = getWeekDays(weekOffset)
   const weekLabel = `${weekDays[0]} ~ ${weekDays[6]}`
@@ -54,8 +54,8 @@ export default function WeeklyBoard({ userId, onLogout }) {
   const today = toLocalDate(todayObj)
   const yesterday = toLocalDate(yesterdayObj)
 
-  const loadData = useCallback(async () => {
-    setLoading(true)
+  const loadData = useCallback(async (isInitial = false) => {
+    if (isInitial) setLoading(true)
     try {
       // 이번 주 도장
       const { data: stampData } = await supabase
@@ -136,10 +136,10 @@ export default function WeeklyBoard({ userId, onLogout }) {
     } catch (e) {
       console.error('로드 실패:', e)
     }
-    setLoading(false)
+    if (isInitial) setLoading(false)
   }, [weekDays.join(',')])
 
-  useEffect(() => { loadData() }, [loadData])
+  useEffect(() => { loadData(true) }, [loadData])
 
   // 도장 클릭 핸들러
   const handleStampClick = async (kidId, dateStr, stampIndex) => {
@@ -158,14 +158,25 @@ export default function WeeklyBoard({ userId, onLogout }) {
     const target = targets[key] || 0
     const withinTarget = stampIndex < target
     const usableCoupons = stats[kidId]?.usableCoupons || 0
+    const isCouponMode = couponMode[kidId]
 
-    // 쿠폰 모달 띄우기 조건: 빈 칸 && 목표 시간 내 && 사용 가능한 쿠폰이 있을 때
-    if (!hasStamp && withinTarget && usableCoupons > 0) {
-      setCouponModal({ kidId, dateStr, stampIndex, usableCoupons })
-      return
+    let useCoupon = false
+    if (!hasStamp && withinTarget && isCouponMode) {
+      if (usableCoupons > 0) {
+        useCoupon = true
+      } else {
+        alert('사용할 수 있는 쿠폰이 없습니다!')
+        setCouponMode(prev => ({ ...prev, [kidId]: false }))
+        return
+      }
     }
 
-    await executeStampToggle(kidId, dateStr, stampIndex, hasStamp, false)
+    await executeStampToggle(kidId, dateStr, stampIndex, hasStamp, useCoupon)
+    
+    // 쿠폰 모드는 1회 사용 후 자동 해제 (원치 않으시면 지워도 됩니다)
+    if (useCoupon) {
+      setCouponMode(prev => ({ ...prev, [kidId]: false }))
+    }
   }
 
   // 실제 DB 저장 실행
@@ -193,12 +204,14 @@ export default function WeeklyBoard({ userId, onLogout }) {
     })
   }
 
-  // 쿠폰 사용 결정
-  const handleCouponSelect = async (useCoupon) => {
-    if (!couponModal) return
-    const { kidId, dateStr, stampIndex } = couponModal
-    setCouponModal(null)
-    await executeStampToggle(kidId, dateStr, stampIndex, false, useCoupon)
+  // 쿠폰 모드 토글
+  const toggleCouponMode = (kidId) => {
+    const usableCoupons = stats[kidId]?.usableCoupons || 0
+    if (usableCoupons <= 0) {
+      alert('사용할 수 있는 쿠폰이 없습니다!')
+      return
+    }
+    setCouponMode(prev => ({ ...prev, [kidId]: !prev[kidId] }))
   }
 
   // 주간 일괄 시간 배정
@@ -296,7 +309,16 @@ export default function WeeklyBoard({ userId, onLogout }) {
               <span className="kid-name">{kid.icon} {kid.name}</span>
               <div className="kid-stats">
                 <span className="stat-money">💰 {kidStats.unsettledMoney.toLocaleString()}원</span>
-                <span className="stat-coupon">🎟 사용가능: {kidStats.usableCoupons}장 (대기: {kidStats.waitCoupons}장)</span>
+                
+                <button 
+                  className={`btn-coupon-toggle ${couponMode[kid.id] ? 'active' : ''}`}
+                  onClick={() => toggleCouponMode(kid.id)}
+                  title="클릭하면 다음 도장은 쿠폰으로 찍힙니다!"
+                >
+                  {couponMode[kid.id] ? '🎫 쿠폰 모드 ON' : `🎟 사용가능: ${kidStats.usableCoupons}장`} 
+                  <span className="coupon-wait">(대기: {kidStats.waitCoupons})</span>
+                </button>
+
                 {isAdmin && (
                   <button
                     className={`btn-payout ${!hasUnsettled ? 'disabled' : ''}`}
@@ -426,25 +448,6 @@ export default function WeeklyBoard({ userId, onLogout }) {
           </div>
         )
       })}
-
-      {/* 쿠폰 선택 모달 */}
-      {couponModal && (
-        <div className="coupon-modal-overlay">
-          <div className="coupon-modal">
-            <h3>도장 찍기</h3>
-            <p>쿠폰을 사용해서 도장을 찍을까요?</p>
-            <div className="coupon-modal-actions">
-              <button className="btn-modal-study" onClick={() => handleCouponSelect(false)}>
-                ⭕ 공부했어요
-              </button>
-              <button className="btn-modal-coupon" onClick={() => handleCouponSelect(true)}>
-                🎫 쿠폰 사용 (남은 쿠폰: {couponModal.usableCoupons}장)
-              </button>
-              <button className="btn-modal-cancel" onClick={() => setCouponModal(null)}>취소</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
