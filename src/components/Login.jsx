@@ -37,7 +37,8 @@ export default function Login({ onLogin }) {
         setError('비밀번호가 틀렸습니다.')
       }
     } catch (e) {
-      setError('서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.')
+      console.error('로그인 오류:', e)
+      setError('오류: ' + (e?.message || e?.code || JSON.stringify(e)))
     }
     setLoading(false)
   }
