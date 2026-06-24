@@ -40,10 +40,10 @@ export async function getStamps(userId, dateStr) {
   return data.map(s => s.stamp_index)
 }
 
-export async function addStamp(userId, dateStr, stampIndex) {
+export async function addStamp(userId, dateStr, stampIndex, isCouponUsed = false) {
   const { error } = await supabase
     .from('study_stamps')
-    .insert([{ user_id: userId, date_str: dateStr, stamp_index: stampIndex }])
+    .insert([{ user_id: userId, date_str: dateStr, stamp_index: stampIndex, is_coupon_used: isCouponUsed }])
   if (error) throw error
 }
 

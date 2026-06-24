@@ -34,19 +34,25 @@ const DAY_LABELS = ['월', '화', '수', '목', '금', '토', '일']
 
 export default function WeeklyBoard({ userId, onLogout }) {
   const [weekOffset, setWeekOffset] = useState(0)
-  const [stamps, setStamps] = useState({})       // { `kidId_dateStr`: [0,1,...] }
+  const [stamps, setStamps] = useState({})       // { `kidId_dateStr`: { stampIndex: { isCouponUsed } } }
   const [targets, setTargets] = useState({})     // { `kidId_dateStr`: count }
   const [targetInputs, setTargetInputs] = useState({})
   const [stats, setStats] = useState({})
   const [loading, setLoading] = useState(true)
   const [processing, setProcessing] = useState(new Set())
-  const [batchHours, setBatchHours] = useState({}) // { kidId: '숫자' }
+  const [batchHours, setBatchHours] = useState({}) 
+  const [couponModal, setCouponModal] = useState(null)
 
   const weekDays = getWeekDays(weekOffset)
   const weekLabel = `${weekDays[0]} ~ ${weekDays[6]}`
   const isAdmin = userId === 'admin'
   const visibleKids = isAdmin ? KIDS : KIDS.filter(k => k.id === userId)
-  const today = toLocalDate(new Date())
+  
+  const todayObj = new Date()
+  const yesterdayObj = new Date(todayObj)
+  yesterdayObj.setDate(todayObj.getDate() - 1)
+  const today = toLocalDate(todayObj)
+  const yesterday = toLocalDate(yesterdayObj)
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -54,14 +60,14 @@ export default function WeeklyBoard({ userId, onLogout }) {
       // 이번 주 도장
       const { data: stampData } = await supabase
         .from('study_stamps')
-        .select('user_id, date_str, stamp_index')
+        .select('user_id, date_str, stamp_index, is_coupon_used')
         .in('date_str', weekDays)
 
       const stampMap = {}
       ;(stampData || []).forEach(s => {
         const key = `${s.user_id}_${s.date_str}`
-        if (!stampMap[key]) stampMap[key] = []
-        stampMap[key].push(s.stamp_index)
+        if (!stampMap[key]) stampMap[key] = {}
+        stampMap[key][s.stamp_index] = { isCouponUsed: s.is_coupon_used }
       })
       setStamps(stampMap)
 
@@ -84,7 +90,7 @@ export default function WeeklyBoard({ userId, onLogout }) {
       // 전체 통계
       const { data: allStamps } = await supabase
         .from('study_stamps')
-        .select('user_id, date_str, stamp_index')
+        .select('user_id, date_str, stamp_index, is_coupon_used')
 
       const { data: allTargets } = await supabase
         .from('daily_targets')
@@ -92,7 +98,7 @@ export default function WeeklyBoard({ userId, onLogout }) {
 
       const { data: payouts } = await supabase
         .from('custom_events')
-        .select('user_id, amount')
+        .select('user_id, amount, coupon_amount')
         .eq('event_type', 'payout')
 
       const targetLookup = {}
@@ -102,16 +108,29 @@ export default function WeeklyBoard({ userId, onLogout }) {
 
       const statMap = {}
       KIDS.forEach(k => {
-        let money = 0, coupons = 0
+        let money = 0, unsettledCoupons = 0, usedCoupons = 0
         ;(allStamps || []).filter(s => s.user_id === k.id).forEach(s => {
           const target = targetLookup[`${k.id}_${s.date_str}`] || 0
-          if (s.stamp_index < target) money += RATE
-          else coupons += 1
+          if (s.stamp_index < target) {
+             money += RATE 
+             if (s.is_coupon_used) usedCoupons += 1
+          } else {
+             unsettledCoupons += 1 
+          }
         })
-        const paid = (payouts || [])
-          .filter(p => p.user_id === k.id)
-          .reduce((sum, p) => sum + p.amount, 0)
-        statMap[k.id] = { money: money + paid, coupons }
+        
+        let paidMoney = 0
+        let paidCoupons = 0
+        ;(payouts || []).filter(p => p.user_id === k.id).forEach(p => {
+           paidMoney += Math.abs(p.amount)
+           paidCoupons += p.coupon_amount
+        })
+
+        const unsettledMoney = money - paidMoney
+        const usableCoupons = paidCoupons - usedCoupons
+        const waitCoupons = unsettledCoupons - paidCoupons
+
+        statMap[k.id] = { unsettledMoney, usableCoupons, waitCoupons }
       })
       setStats(statMap)
     } catch (e) {
@@ -122,29 +141,46 @@ export default function WeeklyBoard({ userId, onLogout }) {
 
   useEffect(() => { loadData() }, [loadData])
 
-  // 도장 클릭 (DB 응답 후 UI 갱신 - race condition 방지)
+  // 도장 클릭 핸들러
   const handleStampClick = async (kidId, dateStr, stampIndex) => {
+    // 날짜 제한 확인 (아이만 해당)
+    if (!isAdmin && dateStr !== today && dateStr !== yesterday) {
+      alert('오늘과 어제 도장만 체크할 수 있습니다!')
+      return
+    }
+
     const cellKey = `${kidId}_${dateStr}_${stampIndex}`
     if (processing.has(cellKey)) return
 
+    const key = `${kidId}_${dateStr}`
+    const dayStamps = stamps[key] || {}
+    const hasStamp = dayStamps[stampIndex] !== undefined
+    const target = targets[key] || 0
+    const withinTarget = stampIndex < target
+    const usableCoupons = stats[kidId]?.usableCoupons || 0
+
+    // 쿠폰 모달 띄우기 조건: 빈 칸 && 목표 시간 내 && 사용 가능한 쿠폰이 있을 때
+    if (!hasStamp && withinTarget && usableCoupons > 0) {
+      setCouponModal({ kidId, dateStr, stampIndex, usableCoupons })
+      return
+    }
+
+    await executeStampToggle(kidId, dateStr, stampIndex, hasStamp, false)
+  }
+
+  // 실제 DB 저장 실행
+  const executeStampToggle = async (kidId, dateStr, stampIndex, isRemove, isCouponUsed) => {
+    const cellKey = `${kidId}_${dateStr}_${stampIndex}`
     setProcessing(prev => new Set([...prev, cellKey]))
 
-    const key = `${kidId}_${dateStr}`
-    const hasStamp = (stamps[key] || []).includes(stampIndex)
-
     try {
-      if (hasStamp) {
+      if (isRemove) {
         await removeStamp(kidId, dateStr, stampIndex)
       } else {
-        await addStamp(kidId, dateStr, stampIndex)
+        await addStamp(kidId, dateStr, stampIndex, isCouponUsed)
       }
-      // DB에서 해당 날짜 도장 재조회
-      const { data } = await supabase
-        .from('study_stamps')
-        .select('stamp_index')
-        .eq('user_id', kidId)
-        .eq('date_str', dateStr)
-      setStamps(prev => ({ ...prev, [key]: (data || []).map(s => s.stamp_index) }))
+      // 통계 및 화면 전체 갱신 (Race condition 방지 및 실시간 UI 업데이트)
+      await loadData()
     } catch (e) {
       console.error('도장 오류:', e)
       alert('저장 실패! 잠시 후 다시 눌러보세요.')
@@ -157,6 +193,14 @@ export default function WeeklyBoard({ userId, onLogout }) {
     })
   }
 
+  // 쿠폰 사용 결정
+  const handleCouponSelect = async (useCoupon) => {
+    if (!couponModal) return
+    const { kidId, dateStr, stampIndex } = couponModal
+    setCouponModal(null)
+    await executeStampToggle(kidId, dateStr, stampIndex, false, useCoupon)
+  }
+
   // 주간 일괄 시간 배정
   const handleBatchSet = async (kidId) => {
     const val = parseInt(batchHours[kidId] || '0')
@@ -165,14 +209,7 @@ export default function WeeklyBoard({ userId, onLogout }) {
       for (const dateStr of weekDays) {
         await setTarget(kidId, dateStr, count)
       }
-      const newTargets = {}
-      const newInputs = {}
-      weekDays.forEach(d => {
-        newTargets[`${kidId}_${d}`] = count
-        newInputs[`${kidId}_${d}`] = String(count)
-      })
-      setTargets(prev => ({ ...prev, ...newTargets }))
-      setTargetInputs(prev => ({ ...prev, ...newInputs }))
+      await loadData() // 전체 다시 불러오기
       setBatchHours(prev => ({ ...prev, [kidId]: '' }))
     } catch (e) {
       alert('일괄 배정 실패: ' + e.message)
@@ -186,8 +223,7 @@ export default function WeeklyBoard({ userId, onLogout }) {
     const count = Math.max(0, Math.min(MAX_STAMPS, parseInt(raw) || 0))
     try {
       await setTarget(kidId, dateStr, count)
-      setTargets(prev => ({ ...prev, [inputKey]: count }))
-      setTargetInputs(prev => ({ ...prev, [inputKey]: String(count) }))
+      await loadData()
     } catch (e) {
       console.error('목표 저장 실패:', e)
       alert('저장 실패: ' + e.message)
@@ -196,17 +232,22 @@ export default function WeeklyBoard({ userId, onLogout }) {
 
   // 용돈 지급
   const handlePayout = async (kidId) => {
-    const money = stats[kidId]?.money || 0
-    if (money === 0) return
+    const kidStats = stats[kidId] || { unsettledMoney: 0, waitCoupons: 0 }
+    if (kidStats.unsettledMoney <= 0 && kidStats.waitCoupons <= 0) return
+    
     const kidName = KIDS.find(k => k.id === kidId)?.name
-    const msg = money > 0
-      ? `${kidName}에게 ${money.toLocaleString()}원 지급할까요?`
-      : `${kidName}의 마이너스 잔액(${money.toLocaleString()}원)을 0원으로 초기화할까요?`
+    const msg = `${kidName}에게 미정산 금액 ${kidStats.unsettledMoney.toLocaleString()}원과 대기 쿠폰 ${kidStats.waitCoupons}장을 지급할까요?`
     if (!window.confirm(msg)) return
+    
     try {
       const { error } = await supabase
         .from('custom_events')
-        .insert([{ user_id: kidId, event_type: 'payout', amount: -money }])
+        .insert([{ 
+          user_id: kidId, 
+          event_type: 'payout', 
+          amount: -Math.max(0, kidStats.unsettledMoney),
+          coupon_amount: kidStats.waitCoupons
+        }])
       if (error) throw error
       await loadData()
     } catch (e) {
@@ -237,22 +278,24 @@ export default function WeeklyBoard({ userId, onLogout }) {
       {loading && <div className="loading">불러오는 중...</div>}
 
       {!loading && visibleKids.map(kid => {
-        const kidStats = stats[kid.id] || { money: 0, coupons: 0 }
+        const kidStats = stats[kid.id] || { unsettledMoney: 0, usableCoupons: 0, waitCoupons: 0 }
+        const hasUnsettled = kidStats.unsettledMoney > 0 || kidStats.waitCoupons > 0
+
         return (
           <div key={kid.id} className="kid-section">
             {/* 아이 헤더 */}
             <div className="kid-header">
               <span className="kid-name">{kid.icon} {kid.name}</span>
               <div className="kid-stats">
-                <span className="stat-money">💰 {kidStats.money.toLocaleString()}원</span>
-                <span className="stat-coupon">🎟 {kidStats.coupons}장</span>
+                <span className="stat-money">💰 {kidStats.unsettledMoney.toLocaleString()}원</span>
+                <span className="stat-coupon">🎟 사용가능: {kidStats.usableCoupons}장 (대기: {kidStats.waitCoupons}장)</span>
                 {isAdmin && (
                   <button
-                    className={`btn-payout ${kidStats.money === 0 ? 'disabled' : ''}`}
+                    className={`btn-payout ${!hasUnsettled ? 'disabled' : ''}`}
                     onClick={() => handlePayout(kid.id)}
-                    disabled={kidStats.money === 0}
+                    disabled={!hasUnsettled}
                   >
-                    {kidStats.money < 0 ? '초기화' : '지급'}
+                    지급
                   </button>
                 )}
               </div>
@@ -317,9 +360,13 @@ export default function WeeklyBoard({ userId, onLogout }) {
                       {weekDays.map(dateStr => {
                         const key = `${kid.id}_${dateStr}`
                         const target = targets[key] || 0
-                        const filled = (stamps[key] || []).includes(si)
+                        const dayStamps = stamps[key] || {}
+                        const filledData = dayStamps[si]
+                        const isFilled = filledData !== undefined
+                        const isCouponUsed = isFilled && filledData.isCouponUsed
                         const withinTarget = si < target
-                        const isCoupon = filled && !withinTarget
+                        const isEarnedCoupon = isFilled && !withinTarget
+                        
                         const cellKey = `${kid.id}_${dateStr}_${si}`
                         const isProcessing = processing.has(cellKey)
                         const canClick = (isAdmin || kid.id === userId) && !isProcessing
@@ -332,9 +379,9 @@ export default function WeeklyBoard({ userId, onLogout }) {
                           >
                             {isProcessing ? (
                               <span className="stamp-processing">⏳</span>
-                            ) : filled ? (
-                              <span className={`stamp ${isCoupon ? 'stamp-coupon' : 'stamp-filled'}`}>
-                                {isCoupon ? '⭐' : '🔴'}
+                            ) : isFilled ? (
+                              <span className={`stamp ${isEarnedCoupon ? 'stamp-coupon' : 'stamp-filled'}`}>
+                                {isEarnedCoupon ? '⭐' : (isCouponUsed ? '🎫' : '🔴')}
                               </span>
                             ) : withinTarget ? (
                               <span className="stamp stamp-empty">⭕</span>
@@ -356,14 +403,14 @@ export default function WeeklyBoard({ userId, onLogout }) {
               {weekDays.map(dateStr => {
                 const key = `${kid.id}_${dateStr}`
                 const target = targets[key] || 0
-                const dayStamps = stamps[key] || []
-                const moneyCount = dayStamps.filter(i => i < target).length
-                const couponCount = dayStamps.filter(i => i >= target).length
+                const dayStamps = stamps[key] || {}
+                const moneyCount = Object.keys(dayStamps).filter(i => parseInt(i) < target).length
+                const earnedCoupons = Object.keys(dayStamps).filter(i => parseInt(i) >= target).length
                 return (
                   <div key={dateStr} className={`day-summary ${dateStr === today ? 'today-summary' : ''}`}>
                     <span className="summary-count">{moneyCount}/{target}h</span>
                     <span className="summary-money">{(moneyCount * RATE).toLocaleString()}원</span>
-                    {couponCount > 0 && <span className="summary-coupon">🎟{couponCount}</span>}
+                    {earnedCoupons > 0 && <span className="summary-coupon">⭐+{earnedCoupons}</span>}
                   </div>
                 )
               })}
@@ -371,6 +418,25 @@ export default function WeeklyBoard({ userId, onLogout }) {
           </div>
         )
       })}
+
+      {/* 쿠폰 선택 모달 */}
+      {couponModal && (
+        <div className="coupon-modal-overlay">
+          <div className="coupon-modal">
+            <h3>도장 찍기</h3>
+            <p>쿠폰을 사용해서 도장을 찍을까요?</p>
+            <div className="coupon-modal-actions">
+              <button className="btn-modal-study" onClick={() => handleCouponSelect(false)}>
+                ⭕ 공부했어요
+              </button>
+              <button className="btn-modal-coupon" onClick={() => handleCouponSelect(true)}>
+                🎫 쿠폰 사용 (남은 쿠폰: {couponModal.usableCoupons}장)
+              </button>
+              <button className="btn-modal-cancel" onClick={() => setCouponModal(null)}>취소</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
