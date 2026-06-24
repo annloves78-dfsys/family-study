@@ -36,12 +36,18 @@ export default function Login({ onSelectUser }) {
     }
 
     const handleSetPassword = async () => {
+        // 1. 기존(초기) 비밀번호가 맞는지 확인
+        const isValid = await api.checkPassword(selectedUser.id, password)
+        if (!isValid) {
+            setError('기존 비밀번호(초기 비밀번호)가 틀렸습니다.')
+            return
+        }
         if (!newPassword) {
-            setError('비밀번호를 입력해주세요.')
+            setError('새 비밀번호를 입력해주세요.')
             return
         }
         if (newPassword !== confirmPassword) {
-            setError('비밀번호가 일치하지 않습니다.')
+            setError('새 비밀번호가 일치하지 않습니다.')
             return
         }
         await api.setPassword(selectedUser.id, newPassword)
@@ -88,14 +94,24 @@ export default function Login({ onSelectUser }) {
                             </>
                         ) : (
                             <>
-                                <p style={{marginBottom:'1rem', color:'var(--primary-color)', fontWeight:'bold'}}>처음 오셨군요! 사용할 비밀번호를 설정해주세요.</p>
+                                <p style={{marginBottom:'1rem', color:'var(--primary-color)', fontWeight:'bold', fontSize:'0.9rem'}}>
+                                    초기 비밀번호를 먼저 입력한 뒤,<br/>새로운 비밀번호를 설정해주세요.
+                                </p>
+                                <div className="input-group">
+                                    <input 
+                                        type="password" 
+                                        value={password} 
+                                        onChange={e => setPassword(e.target.value)} 
+                                        placeholder="초기 비밀번호 입력" 
+                                        autoFocus
+                                    />
+                                </div>
                                 <div className="input-group">
                                     <input 
                                         type="password" 
                                         value={newPassword} 
                                         onChange={e => setNewPassword(e.target.value)} 
                                         placeholder="새 비밀번호 입력" 
-                                        autoFocus
                                     />
                                 </div>
                                 <div className="input-group">
