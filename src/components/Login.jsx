@@ -25,8 +25,7 @@ export default function Login({ onSelectUser }) {
         setNewPassword('')
         setConfirmPassword('')
         setError('')
-        const p = await api.getProfile(u.id)
-        setProfile(p)
+        setIsSettingPassword(false)
     }
 
     const handleLogin = async () => {
