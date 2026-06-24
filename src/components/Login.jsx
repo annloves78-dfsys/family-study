@@ -8,6 +8,7 @@ export default function Login({ onSelectUser }) {
     const [newPassword, setNewPassword] = useState('')
     const [confirmPassword, setConfirmPassword] = useState('')
     const [error, setError] = useState('')
+    const [isSettingPassword, setIsSettingPassword] = useState(false)
 
     const users = [
         { id: 'yoonseo', name: '윤서', icon: '👩' },
@@ -18,6 +19,8 @@ export default function Login({ onSelectUser }) {
 
     const handleSelect = async (u) => {
         setSelectedUser(u)
+        const p = await api.getProfile(u.id)
+        setProfile(p)
         setPassword('')
         setNewPassword('')
         setConfirmPassword('')
@@ -73,11 +76,11 @@ export default function Login({ onSelectUser }) {
             {selectedUser && profile && (
                 <div className="modal">
                     <div className="modal-content">
-                        <h2>{selectedUser.name} {profile.is_password_set ? '로그인' : '비밀번호 설정'}</h2>
+                        <h2>{selectedUser.name} {!isSettingPassword ? '로그인' : '비밀번호 변경'}</h2>
                         
-                        {profile.is_password_set ? (
+                        {!isSettingPassword ? (
                             <>
-                                <p style={{marginBottom:'1rem'}}>비밀번호를 입력해주세요.</p>
+                                <p style={{marginBottom:'1rem'}}>비밀번호를 입력해주세요. (초기 0000)</p>
                                 <input 
                                     type="password" 
                                     value={password} 
@@ -90,7 +93,7 @@ export default function Login({ onSelectUser }) {
                                 <div className="modal-actions" style={{flexWrap: 'wrap', gap: '0.5rem'}}>
                                     <button className="btn" onClick={handleLogin}>로그인</button>
                                     <button className="btn btn-outline" onClick={() => {
-                                        setProfile({...profile, is_password_set: false});
+                                        setIsSettingPassword(true);
                                         setError('');
                                         setPassword('');
                                     }}>비밀번호 변경</button>
@@ -107,7 +110,7 @@ export default function Login({ onSelectUser }) {
                                         type="password" 
                                         value={password} 
                                         onChange={e => setPassword(e.target.value)} 
-                                        placeholder="초기 비밀번호 입력" 
+                                        placeholder="현재 비밀번호 입력" 
                                         autoFocus
                                     />
                                 </div>
@@ -129,9 +132,13 @@ export default function Login({ onSelectUser }) {
                                     />
                                 </div>
                                 {error && <p style={{color:'var(--danger-color)', marginTop:'0.5rem', fontSize:'0.9rem'}}>{error}</p>}
-                                <div className="modal-actions">
+                                <div className="modal-actions" style={{flexWrap: 'wrap', gap: '0.5rem'}}>
                                     <button className="btn" onClick={handleSetPassword}>설정 및 로그인</button>
-                                    <button className="btn btn-outline" onClick={() => setSelectedUser(null)}>취소</button>
+                                    <button className="btn btn-outline" onClick={() => {
+                                        setIsSettingPassword(false);
+                                        setError('');
+                                        setPassword('');
+                                    }}>뒤로가기</button>
                                 </div>
                             </>
                         )}
