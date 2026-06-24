@@ -87,7 +87,7 @@ export const api = {
         }
         return localDb.study_stamps.filter(s => s.user_id === userId);
     },
-    async toggleStamp(userId, dateStr, stampIndex) {
+    async toggleStamp(userId, dateStr, stampIndex, isCoupon = false) {
         if (supabase) {
             const { data: existing } = await supabase.from('study_stamps')
                 .select('id')
@@ -98,29 +98,30 @@ export const api = {
             if (existing) {
                 await supabase.from('study_stamps').delete().eq('id', existing.id);
             } else {
-                await supabase.from('study_stamps').insert([{ user_id: userId, date_str: dateStr, stamp_index: stampIndex }]);
+                await supabase.from('study_stamps').insert([{ user_id: userId, date_str: dateStr, stamp_index: stampIndex, is_coupon: isCoupon }]);
             }
         } else {
             const idx = localDb.study_stamps.findIndex(x => x.user_id === userId && x.date_str === dateStr && x.stamp_index === stampIndex);
             if (idx >= 0) localDb.study_stamps.splice(idx, 1);
-            else localDb.study_stamps.push({ id: Date.now(), user_id: userId, date_str: dateStr, stamp_index: stampIndex });
+            else localDb.study_stamps.push({ id: Date.now(), user_id: userId, date_str: dateStr, stamp_index: stampIndex, is_coupon: isCoupon });
             saveLocal();
         }
     },
     async getStats(userId) {
-        // 돈과 쿠폰 계산
         const stamps = await this.getStamps(userId);
-        const totalMoney = stamps.length * 500;
+        const normalStamps = stamps.filter(s => !s.is_coupon);
+        const couponStamps = stamps.filter(s => s.is_coupon);
 
-        let totalCoupons = 0;
-        // 날짜별 도장 개수 집계
-        const dailyStamps = {};
-        stamps.forEach(s => {
-            dailyStamps[s.date_str] = (dailyStamps[s.date_str] || 0) + 1;
+        // 쿠폰으로 채워도 용돈은 지급됨 (모든 도장 * 500원)
+        const totalMoney = stamps.length * 500;
+        let earnedCoupons = 0;
+        const usedCoupons = couponStamps.length;
+
+        const dailyNormalStamps = {};
+        normalStamps.forEach(s => {
+            dailyNormalStamps[s.date_str] = (dailyNormalStamps[s.date_str] || 0) + 1;
         });
 
-        // 모든 날짜의 타겟 가져오기 (전체 기간)
-        // 실제로는 stamps가 있는 날짜들에 대해서만 확인해도 됨
         if (supabase) {
             const { data: targets } = await supabase.from('daily_targets').select('*').eq('user_id', userId);
             const targetMap = {};
@@ -128,21 +129,24 @@ export const api = {
                 targets.forEach(t => targetMap[t.date_str] = t.target_count);
             }
             
-            for (const [date, count] of Object.entries(dailyStamps)) {
+            for (const [date, count] of Object.entries(dailyNormalStamps)) {
                 const target = targetMap[date] || 0;
-                if (count > target && target > 0) { // 목표가 0일 때는 쿠폰이 안 쌓이도록 방어 (또는 쌓이게 할수도 있음. 기획상 '공부해야하는 시간까지 찍어놓으면 그 이후 공부한건 쿠폰'이라고 함)
-                    totalCoupons += (count - target);
+                // 순수 공부로 목표를 초과한 만큼만 쿠폰 획득
+                if (count > target && target > 0) {
+                    earnedCoupons += (count - target);
                 }
             }
         } else {
-            for (const [date, count] of Object.entries(dailyStamps)) {
+            for (const [date, count] of Object.entries(dailyNormalStamps)) {
                 const t = localDb.daily_targets.find(x => x.user_id === userId && x.date_str === date);
                 const target = t ? t.target_count : 0;
                 if (count > target && target > 0) {
-                    totalCoupons += (count - target);
+                    earnedCoupons += (count - target);
                 }
             }
         }
+
+        const totalCoupons = Math.max(0, earnedCoupons - usedCoupons);
 
         return { money: totalMoney, coupons: totalCoupons, stamps };
     }

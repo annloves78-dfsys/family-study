@@ -76,8 +76,42 @@ export default function WeeklyBoard({ userId, onLogout }) {
     useEffect(() => { loadData() }, [startDate, userId])
 
     const handleStampClick = async (kidId, dateStr, stampIndex) => {
-        if (userId !== 'admin' && userId !== kidId) return; // Cannot click others
-        if (userId === 'admin') return; // Admin only sets targets
+        const stampsForDay = allStamps[kidId]?.filter(s => s.date_str === dateStr) || []
+        const existingStamp = stampsForDay.find(s => s.stamp_index === stampIndex)
+        
+        if (userId === 'admin') {
+            if (existingStamp) {
+                const msg = existingStamp.is_coupon 
+                    ? "쿠폰 사용을 취소하시겠습니까? (쿠폰 1장이 반환됩니다)" 
+                    : "실제 공부한 도장입니다. 지우시겠습니까?";
+                if (window.confirm(msg)) {
+                    await api.toggleStamp(kidId, dateStr, stampIndex);
+                    loadData();
+                }
+            } else {
+                const targetCount = allTargets[kidId]?.[dateStr] || 0;
+                if (stampIndex >= targetCount) {
+                    alert("초과 시간은 쿠폰으로 채울 수 없습니다.");
+                    return;
+                }
+                const availableCoupons = allStats[kidId]?.coupons || 0;
+                if (availableCoupons <= 0) {
+                    alert("사용 가능한 쿠폰이 없습니다!");
+                    return;
+                }
+                if (window.confirm("쿠폰 1장을 사용하여 도장을 채우시겠습니까? (용돈은 동일하게 지급됩니다)")) {
+                    await api.toggleStamp(kidId, dateStr, stampIndex, true);
+                    loadData();
+                }
+            }
+            return;
+        }
+
+        if (userId !== kidId) return; // 아이들은 자기 것만
+        if (existingStamp && existingStamp.is_coupon) {
+            alert("관리자가 쿠폰으로 채운 도장입니다. 직접 지울 수 없습니다.");
+            return;
+        }
 
         await api.toggleStamp(kidId, dateStr, stampIndex);
         loadData();
@@ -165,18 +199,26 @@ export default function WeeklyBoard({ userId, onLogout }) {
                                             <div className="kid-name">{kid.name}</div>
                                             <div className="stamps-container">
                                                 {Array.from({length: 10}).map((_, idx) => {
-                                                    const isFilled = stampsForDay.some(s => s.stamp_index === idx)
+                                                    const existing = stampsForDay.find(s => s.stamp_index === idx)
+                                                    const isFilled = !!existing
+                                                    const isCoupon = isFilled && existing.is_coupon
                                                     const isTarget = idx < targetCount
                                                     const isMine = userId === kid.id
-                                                    const boxClass = `stamp-box ${!isMine ? 'readonly' : ''} ${isTarget && !isFilled ? 'target' : ''} ${isFilled ? 'filled' : ''}`
+                                                    const canAdminClick = userId === 'admin' && (!isFilled ? isTarget : true)
+                                                    const isClickable = isMine || canAdminClick
                                                     
+                                                    const boxClass = `stamp-box ${!isClickable ? 'readonly' : ''} ${isTarget && !isFilled ? 'target' : ''} ${isFilled && !isCoupon ? 'filled' : ''}`
+                                                    // 쿠폰일 때는 테두리 파란색 처리 등을 인라인 스타일로 살짝 추가 (또는 그냥 이모지만)
+                                                    const extraStyle = isCoupon ? { background: '#eff6ff', borderColor: '#3b82f6', color: '#3b82f6' } : {}
+
                                                     return (
                                                         <div 
                                                             key={idx} 
                                                             className={boxClass}
+                                                            style={extraStyle}
                                                             onClick={() => handleStampClick(kid.id, d.dateStr, idx)}
                                                         >
-                                                            {isFilled && '⭕'}
+                                                            {isFilled && (isCoupon ? '🎟️' : '⭕')}
                                                         </div>
                                                     )
                                                 })}

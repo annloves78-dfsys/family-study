@@ -41,6 +41,7 @@ CREATE TABLE study_stamps (
     user_id TEXT REFERENCES profiles(id) ON DELETE CASCADE,
     date_str TEXT NOT NULL, -- YYYY-MM-DD
     stamp_index INTEGER NOT NULL, -- 0~9 (1시간 단위, 최대 10칸)
+    is_coupon BOOLEAN DEFAULT false,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     UNIQUE(user_id, date_str, stamp_index)
 );
