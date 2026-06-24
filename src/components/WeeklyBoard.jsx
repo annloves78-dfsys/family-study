@@ -146,6 +146,19 @@ export default function WeeklyBoard({ userId, onLogout }) {
     const cellKey = `${kidId}_${dateStr}_${stampIndex}`
     setProcessing(prev => new Set([...prev, cellKey]))
 
+    // 낙관적 UI 업데이트 (빠른 반응성을 위해 화면 먼저 변경)
+    setStamps(prev => {
+      const next = { ...prev }
+      const key = `${kidId}_${dateStr}`
+      next[key] = { ...(next[key] || {}) }
+      if (isRemove) {
+        delete next[key][stampIndex]
+      } else {
+        next[key][stampIndex] = { isCouponUsed }
+      }
+      return next
+    })
+
     try {
       if (isRemove) {
         await removeStamp(kidId, dateStr, stampIndex)
@@ -420,10 +433,9 @@ export default function WeeklyBoard({ userId, onLogout }) {
                             key={dateStr}
                             className={`stamp-cell ${dateStr === today ? 'today-col' : ''} ${withinTarget ? 'in-range' : 'out-range'}`}
                             onClick={() => canClick && handleStampClick(kid.id, dateStr, si)}
+                            style={{ opacity: isProcessing ? 0.6 : 1 }}
                           >
-                            {isProcessing ? (
-                              <span className="stamp-processing">⏳</span>
-                            ) : isFilled ? (
+                            {isFilled ? (
                               <span className={`stamp ${isEarnedCoupon ? 'stamp-coupon' : 'stamp-filled'}`}>
                                 {isEarnedCoupon ? '⭐' : (isCouponUsed ? '🎫' : '🔴')}
                               </span>
