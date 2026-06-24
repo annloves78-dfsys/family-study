@@ -475,6 +475,9 @@ body {
   width: 6px;
   height: 6px;
   border-radius: 50%;
+  background: #e0e0e0;
+}
+
 /* ===== 쿠폰 토글 버튼 ===== */
 .btn-coupon-toggle {
   background: #f8f9ff;
