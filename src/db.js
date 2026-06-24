@@ -72,7 +72,10 @@ export async function getTarget(userId, dateStr) {
 export async function setTarget(userId, dateStr, count) {
   const { error } = await supabase
     .from('daily_targets')
-    .upsert([{ user_id: userId, date_str: dateStr, target_count: count }])
+    .upsert(
+      [{ user_id: userId, date_str: dateStr, target_count: count }],
+      { onConflict: 'user_id,date_str' }
+    )
   if (error) throw error
 }
 

@@ -82,7 +82,7 @@ export default function Login({ onLogin }) {
 
             {!isChanging ? (
               <>
-                <p className="modal-hint">비밀번호를 입력하세요 (초기: 0000)</p>
+                <p className="modal-hint">비밀번호를 입력하세요</p>
                 <input
                   type="password"
                   value={pw}

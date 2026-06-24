@@ -348,7 +348,7 @@ body {
 .stamp-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 460px;
+  min-width: 480px;
 }
 
 .stamp-table th {
@@ -356,32 +356,79 @@ body {
   text-align: center;
   background: #f8f9ff;
   border-bottom: 2px solid #e8ecff;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
 }
 
 .stamp-table th.today-col { background: #ffe8f5; }
 
+.row-num-header {
+  width: 36px;
+  color: #999;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.row-num {
+  text-align: center;
+  font-size: 0.72rem;
+  color: #aaa;
+  font-weight: 600;
+  padding: 0 2px;
+  width: 28px;
+}
+
 .day-label { font-weight: 700; color: #667eea; }
-.date-label { font-size: 0.75rem; color: #888; margin-top: 2px; }
+.date-label { font-size: 0.72rem; color: #888; margin-top: 1px; }
+
+/* 관리자 목표 입력 (헤더 안) */
+.target-cell-input {
+  width: 40px;
+  padding: 2px 4px;
+  border: 1.5px solid #c7d3ff;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 0.78rem;
+  text-align: center;
+  outline: none;
+  margin-top: 3px;
+  background: white;
+}
+.target-cell-input:focus { border-color: #667eea; }
+
+/* 아이 목표 표시 */
+.target-display {
+  font-size: 0.78rem;
+  color: #667eea;
+  font-weight: 700;
+  margin-top: 3px;
+}
 
 .stamp-cell {
   text-align: center;
-  padding: 2px;
+  padding: 1px;
   border: 1px solid #f0f0f0;
-  height: 32px;
+  height: 30px;
+  width: 44px;
 }
 
 .stamp-cell.today-col { background: #fff5fc; }
+.stamp-cell.in-range { cursor: pointer; }
+.stamp-cell.in-range:hover { background: #f0f4ff; }
+.stamp-cell.out-range { cursor: pointer; background: #fafafa; }
+.stamp-cell.out-range:hover { background: #fffbf0; }
 
-.stamp { font-size: 1.1rem; line-height: 1; cursor: pointer; user-select: none; }
-.stamp:hover { transform: scale(1.2); transition: transform 0.1s; }
-.stamp.filled { opacity: 1; }
-.stamp.empty { opacity: 0.4; }
+.stamp { font-size: 1rem; line-height: 1; user-select: none; display: block; }
+.stamp-filled { opacity: 1; }
+.stamp-empty { opacity: 0.35; }
+.stamp-coupon { opacity: 0.9; }
+.stamp-processing { font-size: 0.8rem; }
 
-.stamp-blank {
-  width: 100%;
-  height: 28px;
-  background: #fafafa;
+.stamp-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #e0e0e0;
 }
 
 /* ===== 주간 요약 ===== */
@@ -399,18 +446,26 @@ body {
   padding: 0.3rem 0.1rem;
 }
 
+.day-summary.today-summary { background: #fff0f8; }
+
 .summary-count {
   display: block;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 700;
   color: #667eea;
 }
 
 .summary-money {
   display: block;
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   color: #888;
   margin-top: 1px;
+}
+
+.summary-coupon {
+  display: block;
+  font-size: 0.68rem;
+  color: #e6a817;
 }
 
 /* ===== 반응형 ===== */
