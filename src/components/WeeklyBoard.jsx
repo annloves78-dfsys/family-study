@@ -183,7 +183,7 @@ export default function WeeklyBoard({ userId, onLogout }) {
       await loadData()
     } catch (e) {
       console.error('도장 오류:', e)
-      alert('저장 실패! 잠시 후 다시 눌러보세요.')
+      alert('저장 실패: ' + (e?.message || JSON.stringify(e)))
     }
 
     setProcessing(prev => {
