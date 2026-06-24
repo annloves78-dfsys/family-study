@@ -84,31 +84,12 @@ export default function WeeklyBoard({ userId, onLogout }) {
         const existingStamp = stampsForDay.find(s => s.stamp_index === stampIndex)
         const targetCount = allTargets[kidId]?.[dateStr] || 0;
         
-        // 1. 관리자(Admin)의 경우
+        // 1. 관리자(Admin)의 경우: 클릭한 칸까지를 목표 시간으로 설정
         if (userId === 'admin') {
-            if (existingStamp) {
-                const msg = existingStamp.is_coupon 
-                    ? "쿠폰 사용을 취소하시겠습니까? (쿠폰 1장이 반환됩니다)" 
-                    : "실제 공부한 도장입니다. 지우시겠습니까?";
-                if (window.confirm(msg)) {
-                    await api.toggleStamp(kidId, dateStr, stampIndex);
-                    loadData();
-                }
-            } else {
-                if (stampIndex >= targetCount) {
-                    alert("초과 시간은 쿠폰으로 채울 수 없습니다.");
-                    return;
-                }
-                const availableCoupons = allStats[kidId]?.coupons || 0;
-                if (availableCoupons <= 0) {
-                    alert("사용 가능한 쿠폰이 없습니다!");
-                    return;
-                }
-                if (window.confirm("쿠폰 1장을 사용하여 도장을 채우시겠습니까? (용돈은 동일하게 지급됩니다)")) {
-                    await api.toggleStamp(kidId, dateStr, stampIndex, true);
-                    loadData();
-                }
-            }
+            // 현재 설정된 목표와 같은 칸을 누르면 0으로 리셋, 아니면 클릭한 칸(index+1)을 목표로 설정
+            const newTarget = (targetCount === stampIndex + 1) ? 0 : stampIndex + 1;
+            await api.setTarget(kidId, dateStr, newTarget);
+            loadData();
             return;
         }
 
@@ -293,7 +274,17 @@ export default function WeeklyBoard({ userId, onLogout }) {
                                                             style={extraStyle}
                                                             onClick={() => handleStampClick(kid.id, d.dateStr, idx)}
                                                         >
-                                                            {isFilled && (isCoupon ? '🎟️' : '⭕')}
+                                                            {isFilled ? (
+                                                                <span style={{fontSize: '0.75rem', fontWeight: 'bold'}}>{isCoupon ? '쿠폰!' : '완료!'}</span>
+                                                            ) : (
+                                                                <span style={{
+                                                                    color: isTarget ? '#4b5563' : '#d1d5db', 
+                                                                    fontSize: '0.9rem', 
+                                                                    fontWeight: isTarget ? 'bold' : 'normal'
+                                                                }}>
+                                                                    {idx + 1}
+                                                                </span>
+                                                            )}
                                                         </div>
                                                     )
                                                 })}
