@@ -12,7 +12,10 @@ export default function WeeklyBoard({ userId, onLogout }) {
     const [startDate, setStartDate] = useState(new Date('2026-06-25'))
     const [allStamps, setAllStamps] = useState({})
     const [allTargets, setAllTargets] = useState({})
+    
+    // 나의 통계(아이용) 및 모든 통계(관리자용)
     const [myStats, setMyStats] = useState({ money: 0, coupons: 0 })
+    const [allStats, setAllStats] = useState({}) 
     const [loading, setLoading] = useState(true)
 
     // Admin target setting modal
@@ -42,6 +45,7 @@ export default function WeeklyBoard({ userId, onLogout }) {
         setLoading(true)
         const stampsData = {}
         const targetsData = {}
+        const statsData = {}
         
         for (const kid of kidsList) {
             const stamps = await api.getStamps(kid.id)
@@ -51,12 +55,18 @@ export default function WeeklyBoard({ userId, onLogout }) {
             const targets = await api.getTargets(kid.id, weekDates[0].dateStr, weekDates[6].dateStr)
             targetsData[kid.id] = {}
             targets.forEach(t => { targetsData[kid.id][t.date_str] = t.target_count })
+
+            if (userId === 'admin') {
+                statsData[kid.id] = await api.getStats(kid.id)
+            }
         }
         
         setAllStamps(stampsData)
         setAllTargets(targetsData)
 
-        if (userId !== 'admin') {
+        if (userId === 'admin') {
+            setAllStats(statsData)
+        } else {
             const stats = await api.getStats(userId)
             setMyStats(stats)
         }
@@ -67,9 +77,7 @@ export default function WeeklyBoard({ userId, onLogout }) {
 
     const handleStampClick = async (kidId, dateStr, stampIndex) => {
         if (userId !== 'admin' && userId !== kidId) return; // Cannot click others
-        // Admin also shouldn't stamp for kids directly based on prompt, but we can allow it or block it. 
-        // Prompt says "자기 이름으로 들어간 것만 자기가 체크 가능". 
-        if (userId === 'admin') return; 
+        if (userId === 'admin') return; // Admin only sets targets
 
         await api.toggleStamp(kidId, dateStr, stampIndex);
         loadData();
@@ -82,7 +90,6 @@ export default function WeeklyBoard({ userId, onLogout }) {
     }
 
     const handleSaveTarget = async () => {
-        // Apply target to all kids
         const userIds = kidsList.map(k => k.id)
         await api.setTargetAll(userIds, selectedDate, targetHours)
         setShowAdminModal(false)
@@ -100,7 +107,7 @@ export default function WeeklyBoard({ userId, onLogout }) {
         setStartDate(newD)
     }
     const handleToday = () => {
-        setStartDate(new Date())
+        setStartDate(new Date('2026-06-25')) // 6/25로 초기화
     }
 
     return (
@@ -196,9 +203,21 @@ export default function WeeklyBoard({ userId, onLogout }) {
                 </div>
             )}
             
-            {userId === 'admin' && (
-                <div style={{marginTop: '2rem', textAlign: 'center', color: 'var(--text-secondary)'}}>
-                    날짜 칸을 클릭하면 해당 날짜의 목표 도장 개수를 설정할 수 있습니다.
+            {userId === 'admin' && !loading && (
+                <div style={{marginTop: '2rem'}}>
+                    <h3>아이들 누적 현황 💰</h3>
+                    <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem', marginTop: '1rem'}}>
+                        {kidsList.map(kid => (
+                            <div key={kid.id} style={{padding: '1rem', border: '1px solid var(--border-color)', borderRadius: '12px', background: '#f9fafb', textAlign: 'center'}}>
+                                <div style={{fontWeight: 'bold', marginBottom: '0.5rem'}}>{kid.name}</div>
+                                <div style={{color: 'var(--primary-color)', fontWeight: 'bold'}}>{allStats[kid.id]?.money.toLocaleString()}원</div>
+                                <div style={{color: 'var(--text-secondary)', fontSize: '0.9rem'}}>쿠폰: {allStats[kid.id]?.coupons}장</div>
+                            </div>
+                        ))}
+                    </div>
+                    <div style={{marginTop: '1.5rem', textAlign: 'center', color: 'var(--text-secondary)'}}>
+                        날짜 칸을 클릭하면 해당 날짜의 목표 도장 개수를 일괄 배정할 수 있습니다.
+                    </div>
                 </div>
             )}
         </div>
