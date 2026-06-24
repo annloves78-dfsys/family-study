@@ -16,7 +16,8 @@ const defaultDb = {
         admin: { id: "admin", name: "관리자", password: "1234", is_password_set: false, role: "admin" }
     },
     daily_targets: [],
-    study_stamps: []
+    study_stamps: [],
+    custom_events: []
 };
 
 let localDb = JSON.parse(localStorage.getItem('studyTracker_react_db_v2'));
@@ -105,15 +106,29 @@ export const api = {
         else localDb.study_stamps.push({ id: Date.now(), user_id: userId, date_str: dateStr, stamp_index: stampIndex, is_coupon: isCoupon });
         saveLocal();
     },
+    async addCustomEvent(userId, type, amount) {
+        localDb.custom_events = localDb.custom_events || [];
+        localDb.custom_events.push({ id: Date.now(), user_id: userId, event_type: type, amount: amount, created_at: new Date().toISOString() });
+        saveLocal();
+    },
+    async getCustomEvents(userId) {
+        return (localDb.custom_events || []).filter(e => e.user_id === userId);
+    },
     async getStats(userId) {
         const stamps = await this.getStamps(userId);
+        const events = await this.getCustomEvents(userId);
         const normalStamps = stamps.filter(s => !s.is_coupon);
         const couponStamps = stamps.filter(s => s.is_coupon);
 
         // 쿠폰으로 채워도 용돈은 지급됨 (모든 도장 * 500원)
-        const totalMoney = stamps.length * 500;
+        let totalMoney = stamps.length * 500;
         let earnedCoupons = 0;
         const usedCoupons = couponStamps.length;
+
+        events.forEach(e => {
+            if (e.event_type === 'money') totalMoney += e.amount;
+            if (e.event_type === 'coupon') earnedCoupons += e.amount;
+        });
 
         const dailyNormalStamps = {};
         normalStamps.forEach(s => {

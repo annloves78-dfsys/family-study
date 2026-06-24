@@ -307,22 +307,51 @@ export default function WeeklyBoard({ userId, onLogout }) {
                 )}
             </div>
 
-            {userId !== 'admin' && !loading && (
-                <div className="stats-container">
-                    <div className="stat-box">
-                        <div className="label">누적 용돈</div>
-                        <div className="value">{myStats.money.toLocaleString()}원</div>
+            <div className="stats-container" style={{flexDirection: userId === 'admin' ? 'column' : 'row', gap: '1rem', alignItems: 'center'}}>
+                {userId === 'admin' ? (
+                    <div style={{width: '100%', maxWidth: '400px'}}>
+                        <h3 style={{textAlign: 'center', marginBottom: '1rem'}}>용돈 정산 💰</h3>
+                        <div style={{display: 'flex', flexDirection: 'column', gap: '0.8rem'}}>
+                            {kidsList.map(kid => {
+                                const m = allStats[kid.id]?.money || 0;
+                                return (
+                                    <div key={kid.id} style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.8rem 1rem', background: 'white', borderRadius: '8px', border: '1px solid var(--border-color)'}}>
+                                        <span style={{fontWeight: '500'}}>{kid.name}: <strong style={{color: 'var(--primary-color)'}}>{m.toLocaleString()}원</strong></span>
+                                        <button 
+                                            className="btn-small btn-outline" 
+                                            onClick={async () => {
+                                                if (m <= 0) return;
+                                                if (window.confirm(`${kid.name}에게 ${m.toLocaleString()}원을 모두 지급하시겠습니까? (남은 용돈이 0원이 됩니다)`)) {
+                                                    await api.addCustomEvent(kid.id, 'money', -m);
+                                                    loadData();
+                                                }
+                                            }}
+                                            disabled={m <= 0}
+                                        >
+                                            지급 완료
+                                        </button>
+                                    </div>
+                                )
+                            })}
+                        </div>
                     </div>
-                    <div className="stat-box">
-                        <div className="label">보너스 쿠폰</div>
-                        <div className="value">{myStats.coupons}장</div>
-                    </div>
-                </div>
-            )}
+                ) : (
+                    <>
+                        <div className="stat-box">
+                            <div className="label">누적 용돈</div>
+                            <div className="value">{myStats.money.toLocaleString()}원</div>
+                        </div>
+                        <div className="stat-box">
+                            <div className="label">보너스 쿠폰</div>
+                            <div className="value">{myStats.coupons}장</div>
+                        </div>
+                    </>
+                )}
+            </div>
             
             {userId === 'admin' && !loading && (
                 <div style={{marginTop: '2rem'}}>
-                    <h3>아이들 누적 현황 💰</h3>
+                    <h3 style={{textAlign: 'center'}}>아이들 누적 현황 💰</h3>
                     <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem', marginTop: '1rem'}}>
                         {kidsList.map(kid => (
                             <div key={kid.id} style={{padding: '1rem', border: '1px solid var(--border-color)', borderRadius: '12px', background: '#f9fafb', textAlign: 'center'}}>
@@ -333,7 +362,7 @@ export default function WeeklyBoard({ userId, onLogout }) {
                         ))}
                     </div>
                     <div style={{marginTop: '1.5rem', textAlign: 'center', color: 'var(--text-secondary)'}}>
-                        날짜 칸을 클릭하면 해당 날짜의 목표 도장 개수를 일괄 배정할 수 있습니다.
+                        빈 칸을 클릭하면 해당 요일의 목표 시간을 개별 배정할 수 있습니다.
                     </div>
                 </div>
             )}
