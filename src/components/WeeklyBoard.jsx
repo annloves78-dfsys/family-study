@@ -122,7 +122,7 @@ export default function WeeklyBoard({ userId, onLogout }) {
         let paidMoney = 0
         let paidCoupons = 0
         ;(payouts || []).filter(p => p.user_id === k.id).forEach(p => {
-           paidMoney += Math.abs(p.amount)
+           paidMoney -= p.amount // payouts are stored as negative numbers
            paidCoupons += p.coupon_amount
         })
 
@@ -230,13 +230,21 @@ export default function WeeklyBoard({ userId, onLogout }) {
     }
   }
 
-  // 용돈 지급
+  // 용돈 지급 및 마이너스 초기화
   const handlePayout = async (kidId) => {
     const kidStats = stats[kidId] || { unsettledMoney: 0, waitCoupons: 0 }
-    if (kidStats.unsettledMoney <= 0 && kidStats.waitCoupons <= 0) return
+    if (kidStats.unsettledMoney === 0 && kidStats.waitCoupons === 0) return
     
     const kidName = KIDS.find(k => k.id === kidId)?.name
-    const msg = `${kidName}에게 미정산 금액 ${kidStats.unsettledMoney.toLocaleString()}원과 대기 쿠폰 ${kidStats.waitCoupons}장을 지급할까요?`
+    let msg = ''
+    if (kidStats.unsettledMoney >= 0) {
+      msg = `${kidName}에게 미정산 금액 ${kidStats.unsettledMoney.toLocaleString()}원과 대기 쿠폰 ${kidStats.waitCoupons}장을 지급할까요?`
+    } else {
+      msg = `${kidName}의 마이너스 잔액(${kidStats.unsettledMoney.toLocaleString()}원)을 0원으로 초기화`
+      if (kidStats.waitCoupons > 0) msg += `하고 대기 쿠폰 ${kidStats.waitCoupons}장을 지급할까요?`
+      else msg += '할까요?'
+    }
+    
     if (!window.confirm(msg)) return
     
     try {
@@ -245,7 +253,7 @@ export default function WeeklyBoard({ userId, onLogout }) {
         .insert([{ 
           user_id: kidId, 
           event_type: 'payout', 
-          amount: -Math.max(0, kidStats.unsettledMoney),
+          amount: -kidStats.unsettledMoney,
           coupon_amount: kidStats.waitCoupons
         }])
       if (error) throw error
@@ -279,7 +287,7 @@ export default function WeeklyBoard({ userId, onLogout }) {
 
       {!loading && visibleKids.map(kid => {
         const kidStats = stats[kid.id] || { unsettledMoney: 0, usableCoupons: 0, waitCoupons: 0 }
-        const hasUnsettled = kidStats.unsettledMoney > 0 || kidStats.waitCoupons > 0
+        const hasUnsettled = kidStats.unsettledMoney !== 0 || kidStats.waitCoupons > 0
 
         return (
           <div key={kid.id} className="kid-section">
