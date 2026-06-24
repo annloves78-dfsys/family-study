@@ -138,12 +138,11 @@ export default function WeeklyBoard({ userId, onLogout }) {
         loadData();
     }
 
-    const handleDayClick = (dateStr) => {
+    const handleWeekSettingsClick = () => {
         if (userId !== 'admin') return;
-        setSelectedDate(dateStr)
         const currentTargets = {}
         kidsList.forEach(k => {
-            currentTargets[k.id] = allTargets[k.id]?.[dateStr] || 0
+            currentTargets[k.id] = allTargets[k.id]?.[weekDates[0]?.dateStr] || 0
         })
         setTargetMap(currentTargets)
         setShowAdminModal(true)
@@ -151,7 +150,9 @@ export default function WeeklyBoard({ userId, onLogout }) {
 
     const handleSaveTarget = async () => {
         for (const kid of kidsList) {
-            await api.setTarget(kid.id, selectedDate, targetMap[kid.id] || 0)
+            for (const d of weekDates) {
+                await api.setTarget(kid.id, d.dateStr, targetMap[kid.id] || 0)
+            }
         }
         setShowAdminModal(false)
         loadData()
@@ -176,8 +177,8 @@ export default function WeeklyBoard({ userId, onLogout }) {
             {showAdminModal && (
                 <div className="modal">
                     <div className="modal-content">
-                        <h2>목표 시간 개별 설정 ⏰</h2>
-                        <p style={{marginBottom:'1.5rem'}}>{selectedDate}</p>
+                        <h2>주간 목표 시간 일괄 설정 ⏰</h2>
+                        <p style={{marginBottom:'1.5rem'}}>이번 주 모든 요일에 똑같이 적용됩니다.</p>
                         <div className="input-group">
                             {kidsList.map(kid => (
                                 <div key={kid.id} style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem'}}>
@@ -232,7 +233,16 @@ export default function WeeklyBoard({ userId, onLogout }) {
                 <div className="board-header">
                     <button className="board-nav-btn" onClick={handlePrevWeek}>◀</button>
                     <h2 style={{fontSize: '1.2rem', margin: 0}}>
-                        <span onClick={handleToday} style={{cursor:'pointer'}}>{weekDates[0].dateStr} ~ {weekDates[6].dateStr}</span>
+                        {weekDates.length > 0 && `${weekDates[0].dateStr} ~ ${weekDates[6].dateStr}`}
+                        {userId === 'admin' && (
+                            <button 
+                                className="btn-small btn-outline" 
+                                style={{marginLeft: '1rem', verticalAlign: 'middle'}}
+                                onClick={handleWeekSettingsClick}
+                            >
+                                ⚙️ 주간 일괄설정
+                            </button>
+                        )}
                     </h2>
                     <button className="board-nav-btn" onClick={handleNextWeek}>▶</button>
                 </div>
@@ -241,9 +251,8 @@ export default function WeeklyBoard({ userId, onLogout }) {
                     <div>
                         {weekDates.map(d => (
                             <div key={d.dateStr} className="day-row">
-                                <div className="day-date" onClick={() => handleDayClick(d.dateStr)}>
+                                <div className="day-date">
                                     <span>{d.dateStr.substring(5)} ({d.dayName})</span>
-                                    {userId === 'admin' && <span style={{color:'var(--primary-color)', fontSize:'0.8rem'}}>⚙️ 설정</span>}
                                 </div>
                                 
                                 {kidsList.map(kid => {
