@@ -98,7 +98,10 @@ export const api = {
             if (existing) {
                 await supabase.from('study_stamps').delete().eq('id', existing.id);
             } else {
-                await supabase.from('study_stamps').insert([{ user_id: userId, date_str: dateStr, stamp_index: stampIndex, is_coupon: isCoupon }]);
+                const { error } = await supabase.from('study_stamps').insert([{ user_id: userId, date_str: dateStr, stamp_index: stampIndex, is_coupon: isCoupon }]);
+                if (error) {
+                    alert("도장 저장 실패! Supabase SQL을 다시 RUN 했는지 확인해주세요.\n" + error.message);
+                }
             }
         } else {
             const idx = localDb.study_stamps.findIndex(x => x.user_id === userId && x.date_str === dateStr && x.stamp_index === stampIndex);

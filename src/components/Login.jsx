@@ -87,15 +87,20 @@ export default function Login({ onSelectUser }) {
                                     autoFocus
                                 />
                                 {error && <p style={{color:'var(--danger-color)', marginTop:'0.5rem', fontSize:'0.9rem'}}>{error}</p>}
-                                <div className="modal-actions">
-                                    <button className="btn" onClick={handleLogin}>확인</button>
+                                <div className="modal-actions" style={{flexWrap: 'wrap', gap: '0.5rem'}}>
+                                    <button className="btn" onClick={handleLogin}>로그인</button>
+                                    <button className="btn btn-outline" onClick={() => {
+                                        setProfile({...profile, is_password_set: false});
+                                        setError('');
+                                        setPassword('');
+                                    }}>비밀번호 변경</button>
                                     <button className="btn btn-outline" onClick={() => setSelectedUser(null)}>취소</button>
                                 </div>
                             </>
                         ) : (
                             <>
                                 <p style={{marginBottom:'1rem', color:'var(--primary-color)', fontWeight:'bold', fontSize:'0.9rem'}}>
-                                    초기 비밀번호를 먼저 입력한 뒤,<br/>새로운 비밀번호를 설정해주세요.
+                                    현재 비밀번호(초기 0000)를 입력한 뒤,<br/>새로운 비밀번호를 설정해주세요.
                                 </p>
                                 <div className="input-group">
                                     <input 

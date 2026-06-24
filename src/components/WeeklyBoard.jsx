@@ -18,10 +18,13 @@ export default function WeeklyBoard({ userId, onLogout }) {
     const [allStats, setAllStats] = useState({}) 
     const [loading, setLoading] = useState(true)
 
+    // Coupon mode for kids
+    const [isCouponMode, setIsCouponMode] = useState(false)
+
     // Admin target setting modal
     const [showAdminModal, setShowAdminModal] = useState(false)
     const [selectedDate, setSelectedDate] = useState('')
-    const [targetHours, setTargetHours] = useState(2)
+    const [targetMap, setTargetMap] = useState({})
 
     const getFormattedDate = (date) => {
         const y = date.getFullYear()
@@ -69,6 +72,7 @@ export default function WeeklyBoard({ userId, onLogout }) {
         } else {
             const stats = await api.getStats(userId)
             setMyStats(stats)
+            if (stats.coupons <= 0) setIsCouponMode(false) // 쿠폰 없으면 모드 해제
         }
         setLoading(false)
     }
@@ -78,7 +82,9 @@ export default function WeeklyBoard({ userId, onLogout }) {
     const handleStampClick = async (kidId, dateStr, stampIndex) => {
         const stampsForDay = allStamps[kidId]?.filter(s => s.date_str === dateStr) || []
         const existingStamp = stampsForDay.find(s => s.stamp_index === stampIndex)
+        const targetCount = allTargets[kidId]?.[dateStr] || 0;
         
+        // 1. 관리자(Admin)의 경우
         if (userId === 'admin') {
             if (existingStamp) {
                 const msg = existingStamp.is_coupon 
@@ -89,7 +95,6 @@ export default function WeeklyBoard({ userId, onLogout }) {
                     loadData();
                 }
             } else {
-                const targetCount = allTargets[kidId]?.[dateStr] || 0;
                 if (stampIndex >= targetCount) {
                     alert("초과 시간은 쿠폰으로 채울 수 없습니다.");
                     return;
@@ -107,9 +112,44 @@ export default function WeeklyBoard({ userId, onLogout }) {
             return;
         }
 
-        if (userId !== kidId) return; // 아이들은 자기 것만
+        // 2. 아이들 본인의 경우
+        if (userId !== kidId) return; // Cannot click others
+
+        if (isCouponMode) {
+            // 쿠폰 모드일 때
+            if (existingStamp) {
+                if (existingStamp.is_coupon) {
+                    if (window.confirm("사용한 쿠폰을 취소하시겠습니까? (쿠폰 1장이 반환됩니다)")) {
+                        await api.toggleStamp(kidId, dateStr, stampIndex);
+                        loadData();
+                    }
+                } else {
+                    alert("이 칸은 실제 공부로 채운 도장입니다. 취소하려면 쿠폰 모드를 끄고 눌러주세요.");
+                }
+            } else {
+                if (stampIndex >= targetCount) {
+                    alert("초과 시간(목표 이후 칸)은 쿠폰으로 채울 수 없습니다.");
+                    return;
+                }
+                if (myStats.coupons <= 0) {
+                    alert("사용 가능한 쿠폰이 부족합니다!");
+                    setIsCouponMode(false);
+                    return;
+                }
+                if (window.confirm("쿠폰 1장을 사용하여 도장을 채울까요? (빈 칸이 🎟️ 모양으로 채워집니다)")) {
+                    await api.toggleStamp(kidId, dateStr, stampIndex, true);
+                    loadData();
+                }
+            }
+            return;
+        }
+
+        // 일반 모드일 때
         if (existingStamp && existingStamp.is_coupon) {
-            alert("관리자가 쿠폰으로 채운 도장입니다. 직접 지울 수 없습니다.");
+            if (window.confirm("쿠폰으로 채운 도장입니다. 쿠폰 사용을 취소하시겠습니까?")) {
+                await api.toggleStamp(kidId, dateStr, stampIndex);
+                loadData();
+            }
             return;
         }
 
@@ -120,12 +160,18 @@ export default function WeeklyBoard({ userId, onLogout }) {
     const handleDayClick = (dateStr) => {
         if (userId !== 'admin') return;
         setSelectedDate(dateStr)
+        const currentTargets = {}
+        kidsList.forEach(k => {
+            currentTargets[k.id] = allTargets[k.id]?.[dateStr] || 0
+        })
+        setTargetMap(currentTargets)
         setShowAdminModal(true)
     }
 
     const handleSaveTarget = async () => {
-        const userIds = kidsList.map(k => k.id)
-        await api.setTargetAll(userIds, selectedDate, targetHours)
+        for (const kid of kidsList) {
+            await api.setTarget(kid.id, selectedDate, targetMap[kid.id] || 0)
+        }
         setShowAdminModal(false)
         loadData()
     }
@@ -149,11 +195,21 @@ export default function WeeklyBoard({ userId, onLogout }) {
             {showAdminModal && (
                 <div className="modal">
                     <div className="modal-content">
-                        <h2>목표 시간 설정 ⏰</h2>
-                        <p style={{marginBottom:'1.5rem'}}>{selectedDate} 일괄 배정</p>
+                        <h2>목표 시간 개별 설정 ⏰</h2>
+                        <p style={{marginBottom:'1.5rem'}}>{selectedDate}</p>
                         <div className="input-group">
-                            <label>목표 시간 (도장 개수)</label>
-                            <input type="number" min="0" max="10" value={targetHours} onChange={e => setTargetHours(Number(e.target.value))} />
+                            {kidsList.map(kid => (
+                                <div key={kid.id} style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem'}}>
+                                    <label style={{margin: 0}}>{kid.name}의 목표</label>
+                                    <input 
+                                        type="number" 
+                                        min="0" max="10" 
+                                        value={targetMap[kid.id] || 0} 
+                                        onChange={e => setTargetMap({...targetMap, [kid.id]: Number(e.target.value)})} 
+                                        style={{width: '100px'}}
+                                    />
+                                </div>
+                            ))}
                         </div>
                         <div className="modal-actions">
                             <button className="btn" onClick={handleSaveTarget}>저장</button>
@@ -171,6 +227,25 @@ export default function WeeklyBoard({ userId, onLogout }) {
                 </div>
                 <button className="btn btn-outline btn-small" onClick={onLogout}>로그아웃</button>
             </header>
+
+            {userId !== 'admin' && (
+                <div style={{background: isCouponMode ? '#eff6ff' : '#f9fafb', padding: '1rem', borderRadius: '12px', border: `1px solid ${isCouponMode ? '#3b82f6' : 'var(--border-color)'}`, marginTop: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', transition: 'all 0.2s'}}>
+                    <div>
+                        <div style={{fontWeight: 'bold', color: isCouponMode ? '#1e40af' : 'var(--text-primary)'}}>🎟️ 쿠폰 사용 모드</div>
+                        <div style={{fontSize: '0.9rem', color: 'var(--text-secondary)'}}>
+                            {isCouponMode ? '이제 채우지 못한 목표 칸을 클릭하면 쿠폰이 사용됩니다.' : '모은 쿠폰으로 빈 칸을 채울 수 있습니다.'}
+                        </div>
+                    </div>
+                    <button 
+                        className={`btn ${isCouponMode ? '' : 'btn-outline'}`}
+                        style={{background: isCouponMode ? '#3b82f6' : '', color: isCouponMode ? 'white' : ''}}
+                        onClick={() => setIsCouponMode(!isCouponMode)}
+                        disabled={!isCouponMode && myStats.coupons <= 0}
+                    >
+                        {isCouponMode ? '끄기' : '켜기'}
+                    </button>
+                </div>
+            )}
 
             <div className="board-container">
                 <div className="board-header">
@@ -208,7 +283,7 @@ export default function WeeklyBoard({ userId, onLogout }) {
                                                     const isClickable = isMine || canAdminClick
                                                     
                                                     const boxClass = `stamp-box ${!isClickable ? 'readonly' : ''} ${isTarget && !isFilled ? 'target' : ''} ${isFilled && !isCoupon ? 'filled' : ''}`
-                                                    // 쿠폰일 때는 테두리 파란색 처리 등을 인라인 스타일로 살짝 추가 (또는 그냥 이모지만)
+                                                    
                                                     const extraStyle = isCoupon ? { background: '#eff6ff', borderColor: '#3b82f6', color: '#3b82f6' } : {}
 
                                                     return (
