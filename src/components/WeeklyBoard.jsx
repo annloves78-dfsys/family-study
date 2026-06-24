@@ -141,6 +141,31 @@ export default function WeeklyBoard({ userId, onLogout }) {
 
   useEffect(() => { loadData(true) }, [loadData])
 
+  // 실제 DB 저장 실행
+  const executeStampToggle = async (kidId, dateStr, stampIndex, isRemove, isCouponUsed) => {
+    const cellKey = `${kidId}_${dateStr}_${stampIndex}`
+    setProcessing(prev => new Set([...prev, cellKey]))
+
+    try {
+      if (isRemove) {
+        await removeStamp(kidId, dateStr, stampIndex)
+      } else {
+        await addStamp(kidId, dateStr, stampIndex, isCouponUsed)
+      }
+      // 통계 및 화면 전체 갱신 (Race condition 방지 및 실시간 UI 업데이트)
+      await loadData()
+    } catch (e) {
+      console.error('도장 오류:', e)
+      alert('저장 실패: ' + (e?.message || JSON.stringify(e)))
+    }
+
+    setProcessing(prev => {
+      const next = new Set(prev)
+      next.delete(cellKey)
+      return next
+    })
+  }
+
   // 도장 클릭 핸들러
   const handleStampClick = async (kidId, dateStr, stampIndex) => {
     // 날짜 제한 확인 (아이만 해당)
@@ -177,31 +202,6 @@ export default function WeeklyBoard({ userId, onLogout }) {
     if (useCoupon) {
       setCouponMode(prev => ({ ...prev, [kidId]: false }))
     }
-  }
-
-  // 실제 DB 저장 실행
-  const executeStampToggle = async (kidId, dateStr, stampIndex, isRemove, isCouponUsed) => {
-    const cellKey = `${kidId}_${dateStr}_${stampIndex}`
-    setProcessing(prev => new Set([...prev, cellKey]))
-
-    try {
-      if (isRemove) {
-        await removeStamp(kidId, dateStr, stampIndex)
-      } else {
-        await addStamp(kidId, dateStr, stampIndex, isCouponUsed)
-      }
-      // 통계 및 화면 전체 갱신 (Race condition 방지 및 실시간 UI 업데이트)
-      await loadData()
-    } catch (e) {
-      console.error('도장 오류:', e)
-      alert('저장 실패: ' + (e?.message || JSON.stringify(e)))
-    }
-
-    setProcessing(prev => {
-      const next = new Set(prev)
-      next.delete(cellKey)
-      return next
-    })
   }
 
   // 쿠폰 모드 토글
