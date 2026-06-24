@@ -2,9 +2,9 @@ import { useState } from 'react'
 import { getProfile, checkPassword, setPassword } from '../db'
 
 const USERS = [
-  { id: 'yoonseo', name: '윤서', icon: '🧒' },
-  { id: 'yeonwoo', name: '연우', icon: '🧒' },
-  { id: 'yeontaek', name: '연택', icon: '🧒' },
+  { id: 'yoonseo', name: '윤서', icon: '👧' },
+  { id: 'yeonwoo', name: '연우', icon: '👦' },
+  { id: 'yeontaek', name: '연택', icon: '🧑' },
   { id: 'admin', name: '관리자', icon: '👩' },
 ]
 
