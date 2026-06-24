@@ -185,6 +185,20 @@ export default function WeeklyBoard({ userId, onLogout }) {
     const usableCoupons = stats[kidId]?.usableCoupons || 0
     const isCouponMode = couponMode[kidId]
 
+    // 순차적 클릭 검사
+    const maxIndex = Object.keys(dayStamps).length > 0 ? Math.max(...Object.keys(dayStamps).map(Number)) : -1
+    if (hasStamp) {
+      if (stampIndex !== maxIndex) {
+        alert('가장 마지막 도장부터 순서대로 지워주세요!')
+        return
+      }
+    } else {
+      if (stampIndex !== maxIndex + 1) {
+        alert('순서대로 도장을 찍어주세요!')
+        return
+      }
+    }
+
     let useCoupon = false
     if (!hasStamp && withinTarget && isCouponMode) {
       if (usableCoupons > 0) {
@@ -424,26 +438,26 @@ export default function WeeklyBoard({ userId, onLogout }) {
                     </tr>
                   ))}
                 </tbody>
+                <tfoot>
+                  <tr className="week-summary-row">
+                    <td></td>
+                    {weekDays.map(dateStr => {
+                      const key = `${kid.id}_${dateStr}`
+                      const target = targets[key] || 0
+                      const dayStamps = stamps[key] || {}
+                      const moneyCount = Object.keys(dayStamps).filter(i => parseInt(i) < target).length
+                      const earnedCoupons = Object.keys(dayStamps).filter(i => parseInt(i) >= target).length
+                      return (
+                        <td key={dateStr} className={`day-summary ${dateStr === today ? 'today-summary' : ''}`}>
+                          <div className="summary-count">{moneyCount}/{target}h</div>
+                          <div className="summary-money">{(moneyCount * RATE).toLocaleString()}원</div>
+                          {earnedCoupons > 0 && <div className="summary-coupon">⭐+{earnedCoupons}</div>}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                </tfoot>
               </table>
-            </div>
-
-            {/* 일별 합계 */}
-            <div className="week-summary">
-              <div className="summary-spacer" />
-              {weekDays.map(dateStr => {
-                const key = `${kid.id}_${dateStr}`
-                const target = targets[key] || 0
-                const dayStamps = stamps[key] || {}
-                const moneyCount = Object.keys(dayStamps).filter(i => parseInt(i) < target).length
-                const earnedCoupons = Object.keys(dayStamps).filter(i => parseInt(i) >= target).length
-                return (
-                  <div key={dateStr} className={`day-summary ${dateStr === today ? 'today-summary' : ''}`}>
-                    <span className="summary-count">{moneyCount}/{target}h</span>
-                    <span className="summary-money">{(moneyCount * RATE).toLocaleString()}원</span>
-                    {earnedCoupons > 0 && <span className="summary-coupon">⭐+{earnedCoupons}</span>}
-                  </div>
-                )
-              })}
             </div>
           </div>
         )
