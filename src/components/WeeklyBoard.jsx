@@ -320,15 +320,18 @@ export default function WeeklyBoard({ userId, onLogout }) {
                                         <button 
                                             className="btn-small btn-outline" 
                                             onClick={async () => {
-                                                if (m <= 0) return;
-                                                if (window.confirm(`${kid.name}에게 ${m.toLocaleString()}원을 모두 지급하시겠습니까? (남은 용돈이 0원이 됩니다)`)) {
+                                                if (m === 0) return;
+                                                const msg = m > 0 
+                                                    ? `${kid.name}에게 ${m.toLocaleString()}원을 모두 지급하시겠습니까? (용돈이 0원이 됩니다)`
+                                                    : `${kid.name}의 마이너스 잔액(${m.toLocaleString()}원)을 0원으로 초기화하시겠습니까?`;
+                                                if (window.confirm(msg)) {
                                                     await api.addCustomEvent(kid.id, 'money', -m);
                                                     loadData();
                                                 }
                                             }}
-                                            disabled={m <= 0}
+                                            disabled={m === 0}
                                         >
-                                            지급 완료
+                                            {m > 0 ? '지급 완료' : '초기화'}
                                         </button>
                                     </div>
                                 )
