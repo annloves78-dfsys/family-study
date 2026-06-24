@@ -68,12 +68,11 @@ export const api = {
             } else {
                 await supabase.from('daily_targets').insert([{ user_id: userId, date_str: dateStr, target_count: count }]);
             }
-        } else {
-            const t = localDb.daily_targets.find(x => x.user_id === userId && x.date_str === dateStr);
-            if (t) t.target_count = count;
-            else localDb.daily_targets.push({ id: Date.now(), user_id: userId, date_str: dateStr, target_count: count });
-            saveLocal();
         }
+        const t = localDb.daily_targets.find(x => x.user_id === userId && x.date_str === dateStr);
+        if (t) t.target_count = count;
+        else localDb.daily_targets.push({ id: Date.now(), user_id: userId, date_str: dateStr, target_count: count });
+        saveLocal();
     },
     async setTargetAll(userIds, dateStr, count) {
         for (const uid of userIds) {
@@ -82,8 +81,8 @@ export const api = {
     },
     async getStamps(userId) {
         if (supabase) {
-            const { data } = await supabase.from('study_stamps').select('*').eq('user_id', userId);
-            if (data) return data;
+            const { data, error } = await supabase.from('study_stamps').select('*').eq('user_id', userId);
+            if (data && !error) return data;
         }
         return localDb.study_stamps.filter(s => s.user_id === userId);
     },
@@ -98,17 +97,13 @@ export const api = {
             if (existing) {
                 await supabase.from('study_stamps').delete().eq('id', existing.id);
             } else {
-                const { error } = await supabase.from('study_stamps').insert([{ user_id: userId, date_str: dateStr, stamp_index: stampIndex, is_coupon: isCoupon }]);
-                if (error) {
-                    alert("도장 저장 실패! Supabase SQL을 다시 RUN 했는지 확인해주세요.\n" + error.message);
-                }
+                await supabase.from('study_stamps').insert([{ user_id: userId, date_str: dateStr, stamp_index: stampIndex, is_coupon: isCoupon }]);
             }
-        } else {
-            const idx = localDb.study_stamps.findIndex(x => x.user_id === userId && x.date_str === dateStr && x.stamp_index === stampIndex);
-            if (idx >= 0) localDb.study_stamps.splice(idx, 1);
-            else localDb.study_stamps.push({ id: Date.now(), user_id: userId, date_str: dateStr, stamp_index: stampIndex, is_coupon: isCoupon });
-            saveLocal();
         }
+        const idx = localDb.study_stamps.findIndex(x => x.user_id === userId && x.date_str === dateStr && x.stamp_index === stampIndex);
+        if (idx >= 0) localDb.study_stamps.splice(idx, 1);
+        else localDb.study_stamps.push({ id: Date.now(), user_id: userId, date_str: dateStr, stamp_index: stampIndex, is_coupon: isCoupon });
+        saveLocal();
     },
     async getStats(userId) {
         const stamps = await this.getStamps(userId);
