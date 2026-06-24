@@ -6,9 +6,9 @@ export async function getProfile(userId) {
     .from('profiles')
     .select('*')
     .eq('id', userId)
-    .single()
   if (error) throw error
-  return data
+  if (!data || data.length === 0) throw new Error('사용자 없음: ' + userId)
+  return data[0]
 }
 
 export async function checkPassword(userId, pw) {
@@ -16,9 +16,9 @@ export async function checkPassword(userId, pw) {
     .from('profiles')
     .select('password')
     .eq('id', userId)
-    .single()
   if (error) throw error
-  return data.password === pw
+  if (!data || data.length === 0) throw new Error('사용자 없음: ' + userId)
+  return data[0].password === pw
 }
 
 export async function setPassword(userId, newPw) {
