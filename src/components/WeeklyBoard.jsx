@@ -1,374 +1,292 @@
-import { useState, useEffect } from 'react'
-import { api } from '../db'
+import { useState, useEffect, useCallback } from 'react'
+import { supabase } from '../supabaseClient'
+import { addStamp, removeStamp, setTarget, addPayoutEvent } from '../db'
+
+const RATE = 500 // 도장 1개당 500원
+const MAX_STAMPS = 15
+
+const KIDS = [
+  { id: 'yoonseo', name: '윤서', icon: '🧒' },
+  { id: 'yeonwoo', name: '연우', icon: '🧒' },
+  { id: 'yeontaek', name: '연택', icon: '🧒' },
+]
+
+// 로컬 타임존 기준 날짜 문자열 (YYYY-MM-DD)
+function toLocalDate(date) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+// 월요일~일요일 7일 반환
+function getWeekDays(offset = 0) {
+  const today = new Date()
+  const day = today.getDay() // 0=일, 1=월, ..., 6=토
+  const diff = day === 0 ? -6 : 1 - day // 이번 주 월요일로 이동
+  today.setDate(today.getDate() + diff + offset * 7)
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(today)
+    d.setDate(today.getDate() + i)
+    return toLocalDate(d)
+  })
+}
+
+const DAY_LABELS = ['월', '화', '수', '목', '금', '토', '일']
 
 export default function WeeklyBoard({ userId, onLogout }) {
-    const kidsList = [
-        { id: 'yoonseo', name: '윤서' },
-        { id: 'yeonwoo', name: '연우' },
-        { id: 'yeontaek', name: '연택' }
-    ];
+  const [weekOffset, setWeekOffset] = useState(0)
+  const [stamps, setStamps] = useState({})      // { userId_dateStr: [0,1,2,...] }
+  const [targets, setTargets] = useState({})    // { userId_dateStr: count }
+  const [stats, setStats] = useState({})        // { userId: { total, paidOut } }
+  const [loading, setLoading] = useState(true)
+  const [weekHours, setWeekHours] = useState('') // 주간 목표 설정 입력값
 
-    // 시작 날짜를 6/25 목요일(2026-06-25)로 고정
-    const [startDate, setStartDate] = useState(new Date('2026-06-25'))
-    const [allStamps, setAllStamps] = useState({})
-    const [allTargets, setAllTargets] = useState({})
-    
-    // 나의 통계(아이용) 및 모든 통계(관리자용)
-    const [myStats, setMyStats] = useState({ money: 0, coupons: 0 })
-    const [allStats, setAllStats] = useState({}) 
-    const [loading, setLoading] = useState(true)
+  const weekDays = getWeekDays(weekOffset)
+  const weekLabel = `${weekDays[0]} ~ ${weekDays[6]}`
+  const isAdmin = userId === 'admin'
+  const visibleKids = isAdmin ? KIDS : KIDS.filter(k => k.id === userId)
 
-    // Coupon mode for kids
-    const [isCouponMode, setIsCouponMode] = useState(false)
+  const loadData = useCallback(async () => {
+    setLoading(true)
+    try {
+      // 도장 불러오기
+      const { data: stampData } = await supabase
+        .from('study_stamps')
+        .select('user_id, date_str, stamp_index')
+        .in('date_str', weekDays)
 
-    // Admin target setting modal
-    const [showAdminModal, setShowAdminModal] = useState(false)
-    const [selectedDate, setSelectedDate] = useState('')
-    const [targetMap, setTargetMap] = useState({})
+      const stampMap = {}
+      ;(stampData || []).forEach(s => {
+        const key = `${s.user_id}_${s.date_str}`
+        if (!stampMap[key]) stampMap[key] = []
+        stampMap[key].push(s.stamp_index)
+      })
+      setStamps(stampMap)
 
-    const getFormattedDate = (date) => {
-        const y = date.getFullYear()
-        const m = String(date.getMonth() + 1).padStart(2, '0')
-        const d = String(date.getDate()).padStart(2, '0')
-        return `${y}-${m}-${d}`
+      // 목표 불러오기
+      const { data: targetData } = await supabase
+        .from('daily_targets')
+        .select('user_id, date_str, target_count')
+        .in('date_str', weekDays)
+
+      const targetMap = {}
+      ;(targetData || []).forEach(t => {
+        targetMap[`${t.user_id}_${t.date_str}`] = t.target_count
+      })
+      setTargets(targetMap)
+
+      // 통계 (전체 기간)
+      const { data: allStamps } = await supabase
+        .from('study_stamps')
+        .select('user_id, stamp_index')
+
+      const { data: payouts } = await supabase
+        .from('custom_events')
+        .select('user_id, amount')
+        .eq('event_type', 'payout')
+
+      const statMap = {}
+      KIDS.forEach(k => {
+        const total = (allStamps || []).filter(s => s.user_id === k.id).length * RATE
+        const paid = (payouts || []).filter(p => p.user_id === k.id).reduce((s, p) => s + p.amount, 0)
+        statMap[k.id] = { total, net: total + paid } // paid는 음수임
+      })
+      setStats(statMap)
+    } catch (e) {
+      console.error('데이터 로드 실패:', e)
     }
+    setLoading(false)
+  }, [weekDays.join()])
 
-    const getDayName = (date) => {
-        const days = ['일', '월', '화', '수', '목', '금', '토']
-        return days[date.getDay()]
-    }
+  useEffect(() => { loadData() }, [loadData])
 
-    const weekDates = Array.from({length: 7}).map((_, i) => {
-        const d = new Date(startDate)
-        d.setDate(d.getDate() + i)
-        return { dateObj: d, dateStr: getFormattedDate(d), dayName: getDayName(d) }
+  const handleStampClick = async (kidId, dateStr, index) => {
+    if (!isAdmin && kidId !== userId) return
+    const key = `${kidId}_${dateStr}`
+    const current = stamps[key] || []
+    const hasStamp = current.includes(index)
+
+    // 낙관적 업데이트 (즉시 UI 반영)
+    setStamps(prev => {
+      const cur = prev[key] || []
+      return {
+        ...prev,
+        [key]: hasStamp ? cur.filter(i => i !== index) : [...cur, index]
+      }
     })
 
-    const loadData = async () => {
-        setLoading(true)
-        const stampsData = {}
-        const targetsData = {}
-        const statsData = {}
-        
-        for (const kid of kidsList) {
-            const stamps = await api.getStamps(kid.id)
-            stampsData[kid.id] = stamps
-            
-            // fetch targets for the week
-            const targets = await api.getTargets(kid.id, weekDates[0].dateStr, weekDates[6].dateStr)
-            targetsData[kid.id] = {}
-            targets.forEach(t => { targetsData[kid.id][t.date_str] = t.target_count })
-
-            if (userId === 'admin') {
-                statsData[kid.id] = await api.getStats(kid.id)
-            }
-        }
-        
-        setAllStamps(stampsData)
-        setAllTargets(targetsData)
-
-        if (userId === 'admin') {
-            setAllStats(statsData)
-        } else {
-            const stats = await api.getStats(userId)
-            setMyStats(stats)
-            if (stats.coupons <= 0) setIsCouponMode(false) // 쿠폰 없으면 모드 해제
-        }
-        setLoading(false)
+    try {
+      if (hasStamp) {
+        await removeStamp(kidId, dateStr, index)
+      } else {
+        await addStamp(kidId, dateStr, index)
+      }
+    } catch (e) {
+      // 실패하면 원래 상태로 복구
+      console.error('도장 저장 실패:', e)
+      setStamps(prev => ({
+        ...prev,
+        [key]: hasStamp ? [...(prev[key] || []), index] : (prev[key] || []).filter(i => i !== index)
+      }))
+      alert('저장 실패! 잠시 후 다시 시도해주세요.')
     }
+  }
 
-    useEffect(() => { loadData() }, [startDate, userId])
-
-    const handleStampClick = async (kidId, dateStr, stampIndex) => {
-        const stampsForDay = allStamps[kidId]?.filter(s => s.date_str === dateStr) || []
-        const existingStamp = stampsForDay.find(s => s.stamp_index === stampIndex)
-        const targetCount = allTargets[kidId]?.[dateStr] || 0;
-        
-        // 1. 관리자(Admin)의 경우: 클릭한 칸까지를 목표 시간으로 설정
-        if (userId === 'admin') {
-            // 현재 설정된 목표와 같은 칸을 누르면 0으로 리셋, 아니면 클릭한 칸(index+1)을 목표로 설정
-            const newTarget = (targetCount === stampIndex + 1) ? 0 : stampIndex + 1;
-            await api.setTarget(kidId, dateStr, newTarget);
-            loadData();
-            return;
-        }
-
-        // 2. 아이들 본인의 경우
-        if (userId !== kidId) return; // Cannot click others
-
-        if (isCouponMode) {
-            // 쿠폰 모드일 때
-            if (existingStamp) {
-                if (existingStamp.is_coupon) {
-                    if (window.confirm("사용한 쿠폰을 취소하시겠습니까? (쿠폰 1장이 반환됩니다)")) {
-                        await api.toggleStamp(kidId, dateStr, stampIndex);
-                        loadData();
-                    }
-                } else {
-                    alert("이 칸은 실제 공부로 채운 도장입니다. 취소하려면 쿠폰 모드를 끄고 눌러주세요.");
-                }
-            } else {
-                if (stampIndex >= targetCount) {
-                    alert("초과 시간(목표 이후 칸)은 쿠폰으로 채울 수 없습니다.");
-                    return;
-                }
-                if (myStats.coupons <= 0) {
-                    alert("사용 가능한 쿠폰이 부족합니다!");
-                    setIsCouponMode(false);
-                    return;
-                }
-                if (window.confirm("쿠폰 1장을 사용하여 도장을 채울까요? (빈 칸이 🎟️ 모양으로 채워집니다)")) {
-                    await api.toggleStamp(kidId, dateStr, stampIndex, true);
-                    loadData();
-                }
-            }
-            return;
-        }
-
-        // 일반 모드일 때
-        if (existingStamp && existingStamp.is_coupon) {
-            if (window.confirm("쿠폰으로 채운 도장입니다. 쿠폰 사용을 취소하시겠습니까?")) {
-                await api.toggleStamp(kidId, dateStr, stampIndex);
-                loadData();
-            }
-            return;
-        }
-
-        await api.toggleStamp(kidId, dateStr, stampIndex);
-        loadData();
+  const handleSetWeekTarget = async (kidId) => {
+    const hours = parseFloat(weekHours)
+    if (isNaN(hours) || hours < 0) return alert('올바른 시간을 입력해주세요.')
+    const stampsPerDay = Math.round(hours) // 1시간=1도장
+    try {
+      for (const dateStr of weekDays) {
+        await setTarget(kidId, dateStr, stampsPerDay)
+        setTargets(prev => ({ ...prev, [`${kidId}_${dateStr}`]: stampsPerDay }))
+      }
+      setWeekHours('')
+    } catch (e) {
+      alert('저장 실패!')
     }
+  }
 
-    const handleWeekSettingsClick = () => {
-        if (userId !== 'admin') return;
-        const currentTargets = {}
-        kidsList.forEach(k => {
-            currentTargets[k.id] = allTargets[k.id]?.[weekDates[0]?.dateStr] || 0
-        })
-        setTargetMap(currentTargets)
-        setShowAdminModal(true)
+  const handlePayout = async (kidId) => {
+    const net = stats[kidId]?.net || 0
+    if (net === 0) return
+    const msg = net > 0
+      ? `${KIDS.find(k=>k.id===kidId)?.name}에게 ${net.toLocaleString()}원 지급하시겠습니까?`
+      : `${KIDS.find(k=>k.id===kidId)?.name}의 잔액(${net.toLocaleString()}원)을 0원으로 초기화하시겠습니까?`
+    if (!window.confirm(msg)) return
+    try {
+      await addPayoutEvent(kidId, -net)
+      await loadData()
+    } catch (e) {
+      alert('지급 실패!')
     }
+  }
 
-    const handleSaveTarget = async () => {
-        for (const kid of kidsList) {
-            for (const d of weekDates) {
-                await api.setTarget(kid.id, d.dateStr, targetMap[kid.id] || 0)
-            }
-        }
-        setShowAdminModal(false)
-        loadData()
-    }
+  const today = toLocalDate(new Date())
 
-    const handlePrevWeek = () => {
-        const newD = new Date(startDate)
-        newD.setDate(newD.getDate() - 7)
-        setStartDate(newD)
-    }
-    const handleNextWeek = () => {
-        const newD = new Date(startDate)
-        newD.setDate(newD.getDate() + 7)
-        setStartDate(newD)
-    }
-    const handleToday = () => {
-        setStartDate(new Date('2026-06-25')) // 6/25로 초기화
-    }
-
-    return (
-        <div className="container">
-            {showAdminModal && (
-                <div className="modal">
-                    <div className="modal-content">
-                        <h2>주간 목표 시간 일괄 설정 ⏰</h2>
-                        <p style={{marginBottom:'1.5rem'}}>이번 주 모든 요일에 똑같이 적용됩니다.</p>
-                        <div className="input-group">
-                            {kidsList.map(kid => (
-                                <div key={kid.id} style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem'}}>
-                                    <label style={{margin: 0}}>{kid.name}의 목표</label>
-                                    <input 
-                                        type="number" 
-                                        min="0" max="15" 
-                                        value={targetMap[kid.id] || 0} 
-                                        onChange={e => setTargetMap({...targetMap, [kid.id]: Number(e.target.value)})} 
-                                        style={{width: '100px'}}
-                                    />
-                                </div>
-                            ))}
-                        </div>
-                        <div className="modal-actions">
-                            <button className="btn" onClick={handleSaveTarget}>저장</button>
-                            <button className="btn btn-outline" onClick={() => setShowAdminModal(false)}>취소</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            <header style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                <div>
-                    <h1 style={{textAlign: 'left', margin: 0}}>
-                        {userId === 'admin' ? '가족 도장판 (관리자)' : '나의 도장판'} 🎯
-                    </h1>
-                </div>
-                <button className="btn btn-outline btn-small" onClick={onLogout}>로그아웃</button>
-            </header>
-
-            {userId !== 'admin' && (
-                <div style={{background: isCouponMode ? '#eff6ff' : '#f9fafb', padding: '1rem', borderRadius: '12px', border: `1px solid ${isCouponMode ? '#3b82f6' : 'var(--border-color)'}`, marginTop: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', transition: 'all 0.2s'}}>
-                    <div>
-                        <div style={{fontWeight: 'bold', color: isCouponMode ? '#1e40af' : 'var(--text-primary)'}}>🎟️ 쿠폰 사용 모드</div>
-                        <div style={{fontSize: '0.9rem', color: 'var(--text-secondary)'}}>
-                            {isCouponMode ? '이제 채우지 못한 목표 칸을 클릭하면 쿠폰이 사용됩니다.' : '모은 쿠폰으로 빈 칸을 채울 수 있습니다.'}
-                        </div>
-                    </div>
-                    <button 
-                        className={`btn ${isCouponMode ? '' : 'btn-outline'}`}
-                        style={{background: isCouponMode ? '#3b82f6' : '', color: isCouponMode ? 'white' : ''}}
-                        onClick={() => setIsCouponMode(!isCouponMode)}
-                        disabled={!isCouponMode && myStats.coupons <= 0}
-                    >
-                        {isCouponMode ? '끄기' : '켜기'}
-                    </button>
-                </div>
-            )}
-
-            <div className="board-container">
-                <div className="board-header">
-                    <button className="board-nav-btn" onClick={handlePrevWeek}>◀</button>
-                    <h2 style={{fontSize: '1.2rem', margin: 0}}>
-                        {weekDates.length > 0 && `${weekDates[0].dateStr} ~ ${weekDates[6].dateStr}`}
-                        {userId === 'admin' && (
-                            <button 
-                                className="btn-small btn-outline" 
-                                style={{marginLeft: '1rem', verticalAlign: 'middle'}}
-                                onClick={handleWeekSettingsClick}
-                            >
-                                ⚙️ 주간 일괄설정
-                            </button>
-                        )}
-                    </h2>
-                    <button className="board-nav-btn" onClick={handleNextWeek}>▶</button>
-                </div>
-
-                {loading ? <div style={{padding:'3rem', textAlign:'center'}}>불러오는 중...</div> : (
-                    <div>
-                        {weekDates.map(d => (
-                            <div key={d.dateStr} className="day-row">
-                                <div className="day-date">
-                                    <span>{d.dateStr.substring(5)} ({d.dayName})</span>
-                                </div>
-                                
-                                {kidsList.map(kid => {
-                                    const stampsForDay = allStamps[kid.id]?.filter(s => s.date_str === d.dateStr) || []
-                                    const targetCount = allTargets[kid.id]?.[d.dateStr] || 0
-                                    
-                                    return (
-                                        <div key={kid.id} className="kid-row">
-                                            <div className="kid-name">{kid.name}</div>
-                                            <div className="stamps-container">
-                                                {Array.from({length: 15}).map((_, idx) => {
-                                                    const existing = stampsForDay.find(s => s.stamp_index === idx)
-                                                    const isFilled = !!existing
-                                                    const isCoupon = isFilled && existing.is_coupon
-                                                    const isTarget = idx < targetCount
-                                                    const isMine = userId === kid.id
-                                                    const canAdminClick = userId === 'admin' && (!isFilled ? isTarget : true)
-                                                    const isClickable = isMine || canAdminClick
-                                                    
-                                                    const boxClass = `stamp-box ${!isClickable ? 'readonly' : ''} ${isTarget && !isFilled ? 'target' : ''} ${isFilled && !isCoupon ? 'filled' : ''}`
-                                                    
-                                                    const extraStyle = isCoupon ? { background: '#eff6ff', borderColor: '#3b82f6', color: '#3b82f6' } : {}
-
-                                                    return (
-                                                        <div 
-                                                            key={idx} 
-                                                            className={boxClass}
-                                                            style={extraStyle}
-                                                            onClick={() => handleStampClick(kid.id, d.dateStr, idx)}
-                                                        >
-                                                            {isFilled ? (
-                                                                <span style={{fontSize: '0.75rem', fontWeight: 'bold'}}>{isCoupon ? '쿠폰!' : '완료!'}</span>
-                                                            ) : (
-                                                                <span style={{
-                                                                    color: isTarget ? '#4b5563' : '#d1d5db', 
-                                                                    fontSize: '0.9rem', 
-                                                                    fontWeight: isTarget ? 'bold' : 'normal'
-                                                                }}>
-                                                                    {idx + 1}
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                    )
-                                                })}
-                                            </div>
-                                        </div>
-                                    )
-                                })}
-                            </div>
-                        ))}
-                    </div>
-                )}
-            </div>
-
-            <div className="stats-container" style={{flexDirection: userId === 'admin' ? 'column' : 'row', gap: '1rem', alignItems: 'center'}}>
-                {userId === 'admin' ? (
-                    <div style={{width: '100%', maxWidth: '400px'}}>
-                        <h3 style={{textAlign: 'center', marginBottom: '1rem'}}>용돈 정산 💰</h3>
-                        <div style={{display: 'flex', flexDirection: 'column', gap: '0.8rem'}}>
-                            {kidsList.map(kid => {
-                                const m = allStats[kid.id]?.money || 0;
-                                return (
-                                    <div key={kid.id} style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.8rem 1rem', background: 'white', borderRadius: '8px', border: '1px solid var(--border-color)'}}>
-                                        <span style={{fontWeight: '500'}}>{kid.name}: <strong style={{color: 'var(--primary-color)'}}>{m.toLocaleString()}원</strong></span>
-                                        <button 
-                                            className="btn-small btn-outline" 
-                                            onClick={async () => {
-                                                if (m === 0) return;
-                                                const msg = m > 0 
-                                                    ? `${kid.name}에게 ${m.toLocaleString()}원을 모두 지급하시겠습니까? (용돈이 0원이 됩니다)`
-                                                    : `${kid.name}의 마이너스 잔액(${m.toLocaleString()}원)을 0원으로 초기화하시겠습니까?`;
-                                                if (window.confirm(msg)) {
-                                                    await api.addCustomEvent(kid.id, 'money', -m);
-                                                    loadData();
-                                                }
-                                            }}
-                                            disabled={m === 0}
-                                        >
-                                            {m > 0 ? '지급 완료' : '초기화'}
-                                        </button>
-                                    </div>
-                                )
-                            })}
-                        </div>
-                    </div>
-                ) : (
-                    <>
-                        <div className="stat-box">
-                            <div className="label">누적 용돈</div>
-                            <div className="value">{myStats.money.toLocaleString()}원</div>
-                        </div>
-                        <div className="stat-box">
-                            <div className="label">보너스 쿠폰</div>
-                            <div className="value">{myStats.coupons}장</div>
-                        </div>
-                    </>
-                )}
-            </div>
-            
-            {userId === 'admin' && !loading && (
-                <div style={{marginTop: '2rem'}}>
-                    <h3 style={{textAlign: 'center'}}>아이들 누적 현황 💰</h3>
-                    <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem', marginTop: '1rem'}}>
-                        {kidsList.map(kid => (
-                            <div key={kid.id} style={{padding: '1rem', border: '1px solid var(--border-color)', borderRadius: '12px', background: '#f9fafb', textAlign: 'center'}}>
-                                <div style={{fontWeight: 'bold', marginBottom: '0.5rem'}}>{kid.name}</div>
-                                <div style={{color: 'var(--primary-color)', fontWeight: 'bold'}}>{allStats[kid.id]?.money.toLocaleString()}원</div>
-                                <div style={{color: 'var(--text-secondary)', fontSize: '0.9rem'}}>쿠폰: {allStats[kid.id]?.coupons}장</div>
-                            </div>
-                        ))}
-                    </div>
-                    <div style={{marginTop: '1.5rem', textAlign: 'center', color: 'var(--text-secondary)'}}>
-                        빈 칸을 클릭하면 해당 요일의 목표 시간을 개별 배정할 수 있습니다.
-                    </div>
-                </div>
-            )}
+  return (
+    <div className="board-page">
+      {/* 헤더 */}
+      <header className="board-header">
+        <h1>📚 공부 도장판</h1>
+        <div className="header-right">
+          <span className="user-badge">{isAdmin ? '👩 관리자' : `🧒 ${KIDS.find(k=>k.id===userId)?.name}`}</span>
+          <button className="btn-logout" onClick={onLogout}>로그아웃</button>
         </div>
-    )
+      </header>
+
+      {/* 주 네비게이션 */}
+      <div className="week-nav">
+        <button className="week-btn" onClick={() => setWeekOffset(o => o - 1)}>◀ 이전 주</button>
+        <span className="week-label">{weekLabel}</span>
+        <button className="week-btn" onClick={() => setWeekOffset(o => o + 1)}>다음 주 ▶</button>
+      </div>
+
+      {loading && <div className="loading">불러오는 중...</div>}
+
+      {!loading && visibleKids.map(kid => {
+        const kidStats = stats[kid.id] || { total: 0, net: 0 }
+        return (
+          <div key={kid.id} className="kid-section">
+            {/* 아이 이름 + 통계 */}
+            <div className="kid-header">
+              <span className="kid-name">{kid.icon} {kid.name}</span>
+              <div className="kid-stats">
+                <span className="stat-money">💰 {kidStats.net.toLocaleString()}원</span>
+                {isAdmin && (
+                  <button
+                    className={`btn-payout ${kidStats.net === 0 ? 'disabled' : ''}`}
+                    onClick={() => handlePayout(kid.id)}
+                    disabled={kidStats.net === 0}
+                  >
+                    {kidStats.net > 0 ? '지급' : kidStats.net < 0 ? '초기화' : '지급'}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* 관리자: 주간 목표 설정 */}
+            {isAdmin && (
+              <div className="week-target-row">
+                <span>주간 목표 시간:</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="15"
+                  value={weekHours}
+                  onChange={e => setWeekHours(e.target.value)}
+                  placeholder="시간"
+                  className="target-input"
+                />
+                <button className="btn-set-target" onClick={() => handleSetWeekTarget(kid.id)}>
+                  {kid.name} 배정
+                </button>
+              </div>
+            )}
+
+            {/* 도장판 */}
+            <div className="stamp-grid-wrapper">
+              <table className="stamp-table">
+                <thead>
+                  <tr>
+                    {weekDays.map((d, i) => (
+                      <th key={d} className={d === today ? 'today-col' : ''}>
+                        <div className="day-label">{DAY_LABELS[i]}</div>
+                        <div className="date-label">{d.slice(5)}</div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {Array.from({ length: MAX_STAMPS }, (_, si) => (
+                    <tr key={si}>
+                      {weekDays.map(dateStr => {
+                        const key = `${kid.id}_${dateStr}`
+                        const target = targets[key] || 0
+                        const filled = (stamps[key] || []).includes(si)
+                        const isInRange = si < target
+                        const canClick = isAdmin || kid.id === userId
+                        return (
+                          <td
+                            key={dateStr}
+                            className={`stamp-cell ${dateStr === today ? 'today-col' : ''}`}
+                            onClick={() => canClick && handleStampClick(kid.id, dateStr, si)}
+                            style={{ cursor: canClick && isInRange ? 'pointer' : 'default' }}
+                          >
+                            {isInRange ? (
+                              <div className={`stamp ${filled ? 'filled' : 'empty'}`}>
+                                {filled ? '🔴' : '⭕'}
+                              </div>
+                            ) : (
+                              <div className="stamp-blank" />
+                            )}
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* 주간 도장 합계 */}
+            <div className="week-summary">
+              {weekDays.map(dateStr => {
+                const key = `${kid.id}_${dateStr}`
+                const count = (stamps[key] || []).length
+                const target = targets[key] || 0
+                return (
+                  <div key={dateStr} className="day-summary">
+                    <span className="summary-count">{count}/{target}</span>
+                    <span className="summary-money">{(count * RATE).toLocaleString()}원</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
 }

@@ -3,17 +3,11 @@ import Login from './components/Login'
 import WeeklyBoard from './components/WeeklyBoard'
 
 export default function App() {
-  const [currentUser, setCurrentUser] = useState(null)
+  const [userId, setUserId] = useState(null)
 
-  const handleLogout = () => setCurrentUser(null)
+  if (!userId) {
+    return <Login onLogin={setUserId} />
+  }
 
-  return (
-    <>
-      {!currentUser ? (
-        <Login onSelectUser={setCurrentUser} />
-      ) : (
-        <WeeklyBoard userId={currentUser} onLogout={handleLogout} />
-      )}
-    </>
-  )
+  return <WeeklyBoard userId={userId} onLogout={() => setUserId(null)} />
 }
