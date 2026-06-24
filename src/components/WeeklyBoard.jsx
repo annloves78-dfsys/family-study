@@ -352,6 +352,7 @@ export default function WeeklyBoard({ userId, onLogout }) {
 
             {/* 일별 합계 */}
             <div className="week-summary">
+              <div className="summary-spacer" />
               {weekDays.map(dateStr => {
                 const key = `${kid.id}_${dateStr}`
                 const target = targets[key] || 0
