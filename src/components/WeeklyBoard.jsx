@@ -8,7 +8,8 @@ export default function WeeklyBoard({ userId, onLogout }) {
         { id: 'yeontaek', name: '연택' }
     ];
 
-    const [startDate, setStartDate] = useState(new Date())
+    // 시작 날짜를 6/25 목요일(2026-06-25)로 고정
+    const [startDate, setStartDate] = useState(new Date('2026-06-25'))
     const [allStamps, setAllStamps] = useState({})
     const [allTargets, setAllTargets] = useState({})
     const [myStats, setMyStats] = useState({ money: 0, coupons: 0 })

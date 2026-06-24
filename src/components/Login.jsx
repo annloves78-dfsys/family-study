@@ -3,7 +3,10 @@ import { api } from '../db'
 
 export default function Login({ onSelectUser }) {
     const [selectedUser, setSelectedUser] = useState(null)
+    const [profile, setProfile] = useState(null)
     const [password, setPassword] = useState('')
+    const [newPassword, setNewPassword] = useState('')
+    const [confirmPassword, setConfirmPassword] = useState('')
     const [error, setError] = useState('')
 
     const users = [
@@ -13,10 +16,14 @@ export default function Login({ onSelectUser }) {
         { id: 'admin', name: '관리자', icon: '👑' }
     ]
 
-    const handleSelect = (u) => {
+    const handleSelect = async (u) => {
         setSelectedUser(u)
         setPassword('')
+        setNewPassword('')
+        setConfirmPassword('')
         setError('')
+        const p = await api.getProfile(u.id)
+        setProfile(p)
     }
 
     const handleLogin = async () => {
@@ -26,6 +33,19 @@ export default function Login({ onSelectUser }) {
         } else {
             setError('비밀번호가 틀렸습니다.')
         }
+    }
+
+    const handleSetPassword = async () => {
+        if (!newPassword) {
+            setError('비밀번호를 입력해주세요.')
+            return
+        }
+        if (newPassword !== confirmPassword) {
+            setError('비밀번호가 일치하지 않습니다.')
+            return
+        }
+        await api.setPassword(selectedUser.id, newPassword)
+        onSelectUser(selectedUser.id)
     }
 
     return (
@@ -44,26 +64,56 @@ export default function Login({ onSelectUser }) {
                 ))}
             </div>
 
-            {selectedUser && (
+            {selectedUser && profile && (
                 <div className="modal">
                     <div className="modal-content">
-                        <h2>{selectedUser.name} 로그인</h2>
-                        <p style={{marginBottom:'1rem'}}>비밀번호를 입력해주세요.</p>
+                        <h2>{selectedUser.name} {profile.is_password_set ? '로그인' : '비밀번호 설정'}</h2>
                         
-                        <input 
-                            type="password" 
-                            value={password} 
-                            onChange={e => setPassword(e.target.value)} 
-                            placeholder="비밀번호" 
-                            onKeyDown={e => e.key === 'Enter' && handleLogin()}
-                            autoFocus
-                        />
-                        {error && <p style={{color:'var(--danger-color)', marginTop:'0.5rem', fontSize:'0.9rem'}}>{error}</p>}
-                        
-                        <div className="modal-actions">
-                            <button className="btn" onClick={handleLogin}>확인</button>
-                            <button className="btn btn-outline" onClick={() => setSelectedUser(null)}>취소</button>
-                        </div>
+                        {profile.is_password_set ? (
+                            <>
+                                <p style={{marginBottom:'1rem'}}>비밀번호를 입력해주세요.</p>
+                                <input 
+                                    type="password" 
+                                    value={password} 
+                                    onChange={e => setPassword(e.target.value)} 
+                                    placeholder="비밀번호" 
+                                    onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                                    autoFocus
+                                />
+                                {error && <p style={{color:'var(--danger-color)', marginTop:'0.5rem', fontSize:'0.9rem'}}>{error}</p>}
+                                <div className="modal-actions">
+                                    <button className="btn" onClick={handleLogin}>확인</button>
+                                    <button className="btn btn-outline" onClick={() => setSelectedUser(null)}>취소</button>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <p style={{marginBottom:'1rem', color:'var(--primary-color)', fontWeight:'bold'}}>처음 오셨군요! 사용할 비밀번호를 설정해주세요.</p>
+                                <div className="input-group">
+                                    <input 
+                                        type="password" 
+                                        value={newPassword} 
+                                        onChange={e => setNewPassword(e.target.value)} 
+                                        placeholder="새 비밀번호 입력" 
+                                        autoFocus
+                                    />
+                                </div>
+                                <div className="input-group">
+                                    <input 
+                                        type="password" 
+                                        value={confirmPassword} 
+                                        onChange={e => setConfirmPassword(e.target.value)} 
+                                        placeholder="새 비밀번호 확인" 
+                                        onKeyDown={e => e.key === 'Enter' && handleSetPassword()}
+                                    />
+                                </div>
+                                {error && <p style={{color:'var(--danger-color)', marginTop:'0.5rem', fontSize:'0.9rem'}}>{error}</p>}
+                                <div className="modal-actions">
+                                    <button className="btn" onClick={handleSetPassword}>설정 및 로그인</button>
+                                    <button className="btn btn-outline" onClick={() => setSelectedUser(null)}>취소</button>
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>
             )}

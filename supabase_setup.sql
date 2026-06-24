@@ -15,15 +15,16 @@ CREATE TABLE profiles (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     password TEXT NOT NULL DEFAULT '0000',
+    is_password_set BOOLEAN DEFAULT false,
     role TEXT NOT NULL DEFAULT 'child'
 );
 
 -- 초기 프로필 데이터 삽입
-INSERT INTO profiles (id, name, password, role) VALUES 
-('yoonseo', '윤서', '0000', 'child'),
-('yeonwoo', '연우', '0000', 'child'),
-('yeontaek', '연택', '0000', 'child'),
-('admin', '관리자', '1234', 'admin');
+INSERT INTO profiles (id, name, password, is_password_set, role) VALUES 
+('yoonseo', '윤서', '0000', false, 'child'),
+('yeonwoo', '연우', '0000', false, 'child'),
+('yeontaek', '연택', '0000', false, 'child'),
+('admin', '관리자', '1234', false, 'admin');
 
 -- 2. daily_targets (날짜별 목표 도장 개수)
 CREATE TABLE daily_targets (

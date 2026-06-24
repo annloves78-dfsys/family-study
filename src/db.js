@@ -10,10 +10,10 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 // ==========================================
 const defaultDb = {
     profiles: {
-        yoonseo: { id: "yoonseo", name: "윤서", password: "0000", role: "child" },
-        yeonwoo: { id: "yeonwoo", name: "연우", password: "0000", role: "child" },
-        yeontaek: { id: "yeontaek", name: "연택", password: "0000", role: "child" },
-        admin: { id: "admin", name: "관리자", password: "1234", role: "admin" }
+        yoonseo: { id: "yoonseo", name: "윤서", password: "0000", is_password_set: false, role: "child" },
+        yeonwoo: { id: "yeonwoo", name: "연우", password: "0000", is_password_set: false, role: "child" },
+        yeontaek: { id: "yeontaek", name: "연택", password: "0000", is_password_set: false, role: "child" },
+        admin: { id: "admin", name: "관리자", password: "1234", is_password_set: false, role: "admin" }
     },
     daily_targets: [],
     study_stamps: []
@@ -37,6 +37,17 @@ export const api = {
     async checkPassword(userId, password) {
         const p = await this.getProfile(userId);
         return p && p.password === password;
+    },
+    async setPassword(userId, newPassword) {
+        if (supabase) {
+            await supabase.from('profiles').update({ password: newPassword, is_password_set: true }).eq('id', userId);
+        }
+        const p = localDb.profiles[userId];
+        if (p) {
+            p.password = newPassword;
+            p.is_password_set = true;
+            saveLocal();
+        }
     },
     async getTargets(userId, startDateStr, endDateStr) {
         if (supabase) {
