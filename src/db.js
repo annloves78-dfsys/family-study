@@ -1,9 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 
-// const supabaseUrl = 'https://cffosiozfhadpjvgljgj.supabase.co';
-// const supabaseAnonKey = 'sb_publishable_-Ug7RWjsZSvfmW32UBft8w_RbuDZcZZ';
-// export const supabase = createClient(supabaseUrl, supabaseAnonKey);
-export const supabase = null;
+const supabaseUrl = 'https://cffosiozfhadpjvgljgj.supabase.co';
+const supabaseAnonKey = 'sb_publishable_-Ug7RWjsZSvfmW32UBft8w_RbuDZcZZ';
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // ==========================================
 // [로컬 폴백 DB] 
