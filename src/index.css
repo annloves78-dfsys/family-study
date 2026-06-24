@@ -340,6 +340,53 @@ body {
   font-weight: 600;
 }
 
+/* ===== 주간 일괄 배정 ===== */
+.batch-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.batch-label {
+  font-size: 0.9rem;
+  color: #555;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.batch-input {
+  width: 60px;
+  padding: 0.35rem 0.5rem;
+  border: 2px solid #c7d3ff;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.9rem;
+  text-align: center;
+  outline: none;
+}
+.batch-input:focus { border-color: #667eea; }
+
+.batch-unit {
+  font-size: 0.85rem;
+  color: #777;
+}
+
+.btn-batch {
+  padding: 0.35rem 0.9rem;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-batch:hover { opacity: 0.9; }
+
 /* ===== 도장판 테이블 ===== */
 .stamp-grid-wrapper {
   overflow-x: auto;

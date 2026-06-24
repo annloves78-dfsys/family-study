@@ -40,6 +40,7 @@ export default function WeeklyBoard({ userId, onLogout }) {
   const [stats, setStats] = useState({})
   const [loading, setLoading] = useState(true)
   const [processing, setProcessing] = useState(new Set())
+  const [batchHours, setBatchHours] = useState({}) // { kidId: '숫자' }
 
   const weekDays = getWeekDays(weekOffset)
   const weekLabel = `${weekDays[0]} ~ ${weekDays[6]}`
@@ -156,6 +157,28 @@ export default function WeeklyBoard({ userId, onLogout }) {
     })
   }
 
+  // 주간 일괄 시간 배정
+  const handleBatchSet = async (kidId) => {
+    const val = parseInt(batchHours[kidId] || '0')
+    const count = Math.max(0, Math.min(MAX_STAMPS, isNaN(val) ? 0 : val))
+    try {
+      for (const dateStr of weekDays) {
+        await setTarget(kidId, dateStr, count)
+      }
+      const newTargets = {}
+      const newInputs = {}
+      weekDays.forEach(d => {
+        newTargets[`${kidId}_${d}`] = count
+        newInputs[`${kidId}_${d}`] = String(count)
+      })
+      setTargets(prev => ({ ...prev, ...newTargets }))
+      setTargetInputs(prev => ({ ...prev, ...newInputs }))
+      setBatchHours(prev => ({ ...prev, [kidId]: '' }))
+    } catch (e) {
+      alert('일괄 배정 실패: ' + e.message)
+    }
+  }
+
   // 목표 시간 저장
   const handleTargetSave = async (kidId, dateStr) => {
     const inputKey = `${kidId}_${dateStr}`
@@ -234,6 +257,27 @@ export default function WeeklyBoard({ userId, onLogout }) {
                 )}
               </div>
             </div>
+
+            {/* 주간 일괄 배정 (관리자) */}
+            {isAdmin && (
+              <div className="batch-row">
+                <span className="batch-label">📅 주간 일괄:</span>
+                <input
+                  type="number"
+                  min="0"
+                  max={MAX_STAMPS}
+                  className="batch-input"
+                  value={batchHours[kid.id] ?? ''}
+                  onChange={e => setBatchHours(prev => ({ ...prev, [kid.id]: e.target.value }))}
+                  onKeyDown={e => e.key === 'Enter' && handleBatchSet(kid.id)}
+                  placeholder="시간"
+                />
+                <span className="batch-unit">시간</span>
+                <button className="btn-batch" onClick={() => handleBatchSet(kid.id)}>
+                  {kid.name} 전체 배정
+                </button>
+              </div>
+            )}
 
             {/* 도장 테이블 */}
             <div className="stamp-grid-wrapper">
