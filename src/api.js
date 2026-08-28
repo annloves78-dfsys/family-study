@@ -58,3 +58,6 @@ export const setTarget = (userId, dateStr, count) =>
 // ===== 용돈 지급 =====
 export const addPayout = (userId, amount, couponAmount, settledUntil) =>
   call('payout_add', { userId, amount, couponAmount, settledUntil })
+
+// ===== 위젯 =====
+export const widgetToken = (userId) => call('widget_token', { userId })

@@ -19,7 +19,7 @@ function toLocalDate(date) {
   return `${y}-${m}-${d}`
 }
 
-export default function TodayBoard({ userId, onLogout, onWeek }) {
+export default function TodayBoard({ userId, kidId = userId, onLogout, onWeek, isPreview = false }) {
   const todayObj = new Date()
   const yesterdayObj = new Date(todayObj)
   yesterdayObj.setDate(todayObj.getDate() - 1)
@@ -35,7 +35,7 @@ export default function TodayBoard({ userId, onLogout, onWeek }) {
   const [error, setError] = useState('')
   const [couponMode, setCouponMode] = useState(false)
 
-  const kid = KIDS.find(k => k.id === userId) || { name: '나', icon: '🙂' }
+  const kid = KIDS.find(k => k.id === kidId) || { name: '나', icon: '🙂' }
 
   const loadData = useCallback(async (isInitial = false) => {
     if (isInitial) setLoading(true)
@@ -44,7 +44,7 @@ export default function TodayBoard({ userId, onLogout, onWeek }) {
 
       const sm = {}
       ;(data.weekStamps || []).forEach(s => {
-        if (s.user_id !== userId) return
+        if (s.user_id !== kidId) return
         if (!sm[s.date_str]) sm[s.date_str] = {}
         sm[s.date_str][s.stamp_index] = { isCouponUsed: s.is_coupon_used }
       })
@@ -52,18 +52,18 @@ export default function TodayBoard({ userId, onLogout, onWeek }) {
 
       const tm = {}
       ;(data.weekTargets || []).forEach(t => {
-        if (t.user_id !== userId) return
+        if (t.user_id !== kidId) return
         tm[t.date_str] = t.target_count
       })
       setTargets(tm)
 
-      setStat(data.stats?.[userId] || null)
+      setStat(data.stats?.[kidId] || null)
       setError('')
     } catch (e) {
       setError(e?.message || '불러오지 못했어요')
     }
     if (isInitial) setLoading(false)
-  }, [userId, today, yesterday])
+  }, [kidId, today, yesterday])
 
   useEffect(() => { loadData(true) }, [loadData])
 
@@ -111,8 +111,8 @@ export default function TodayBoard({ userId, onLogout, onWeek }) {
     })
 
     try {
-      if (has) await removeStamp(userId, dateStr, index)
-      else await addStamp(userId, dateStr, index, useCoupon)
+      if (has) await removeStamp(kidId, dateStr, index)
+      else await addStamp(kidId, dateStr, index, useCoupon)
       await loadData()
       if (useCoupon) setCouponMode(false)
     } catch (e) {
@@ -133,10 +133,20 @@ export default function TodayBoard({ userId, onLogout, onWeek }) {
       <header className="today-header">
         <span className="today-who">{kid.icon} {kid.name}</span>
         <div className="today-header-btns">
-          <button className="today-link" onClick={onWeek}>주간 보기</button>
-          <button className="today-link ghost" onClick={onLogout}>로그아웃</button>
+          <button className="today-link" onClick={onWeek}>
+            {isPreview ? '관리자 화면' : '주간 보기'}
+          </button>
+          {!isPreview && (
+            <button className="today-link ghost" onClick={onLogout}>로그아웃</button>
+          )}
         </div>
       </header>
+
+      {isPreview && (
+        <div className="today-preview-note">
+          👩 관리자가 보는 <b>{kid.name}</b>의 화면입니다 — 아이가 보는 것과 똑같아요
+        </div>
+      )}
 
       {/* 어제 / 오늘 */}
       <div className="today-daypick">

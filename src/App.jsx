@@ -11,6 +11,8 @@ export default function App() {
   const [checking, setChecking] = useState(() => Boolean(getToken()))
   // 아이는 '오늘' 화면으로 시작합니다 (앱 열면 바로 도장 찍게)
   const [view, setView] = useState('today')
+  // 관리자가 잠깐 아이 화면을 들여다보는 상태 (아이 비밀번호 없이)
+  const [previewKid, setPreviewKid] = useState(null)
 
   useEffect(() => {
     if (!getToken()) return
@@ -49,9 +51,26 @@ export default function App() {
     return <Login onLogin={handleLogin} />
   }
 
-  // 관리자는 항상 주간 화면 (목표 배정·지급을 해야 하므로)
+  // 관리자는 주간 화면. 필요하면 아이 화면을 그대로 들여다볼 수 있습니다
   if (userId === 'admin') {
-    return <WeeklyBoard userId={userId} onLogout={handleLogout} />
+    if (previewKid) {
+      return (
+        <TodayBoard
+          userId={userId}
+          kidId={previewKid}
+          isPreview
+          onWeek={() => setPreviewKid(null)}
+          onLogout={handleLogout}
+        />
+      )
+    }
+    return (
+      <WeeklyBoard
+        userId={userId}
+        onLogout={handleLogout}
+        onPreview={setPreviewKid}
+      />
+    )
   }
 
   if (view === 'today') {

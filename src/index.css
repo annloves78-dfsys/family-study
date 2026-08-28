@@ -933,3 +933,86 @@ body {
   .today-stamps { grid-template-columns: repeat(3, 1fr); }
   .today-count { font-size: 2.5rem; }
 }
+
+/* 관리자 미리보기 */
+.today-preview-note {
+  width: 100%;
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 0.75rem;
+  background: #f3f0ff;
+  border: 1px solid #ddd4ff;
+  border-radius: 10px;
+  color: #6b46c1;
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+.btn-preview {
+  padding: 0.35rem 0.7rem;
+  border: 1px solid #d9e0ff;
+  border-radius: 8px;
+  background: #fff;
+  color: #4d5bd8;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn-preview:hover { background: #f2f5ff; }
+
+/* 위젯 설정 모달 */
+.widget-box { max-width: 460px; }
+
+.widget-field {
+  width: 100%;
+  margin-bottom: 0.9rem;
+  text-align: left;
+}
+
+.widget-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #8a90a6;
+  margin-bottom: 0.3rem;
+}
+
+.widget-code {
+  display: block;
+  padding: 0.55rem 0.7rem;
+  background: #f5f7ff;
+  border: 1px solid #e0e6ff;
+  border-radius: 8px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  color: #3b4270;
+  word-break: break-all;
+  margin-bottom: 0.35rem;
+}
+
+.widget-code.small { font-size: 0.68rem; }
+
+.widget-copy {
+  padding: 0.3rem 0.75rem;
+  border: 1px solid #d9e0ff;
+  border-radius: 7px;
+  background: #fff;
+  color: #4d5bd8;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.widget-warn {
+  width: 100%;
+  padding: 0.6rem 0.7rem;
+  background: #fff8ec;
+  border: 1px solid #ffd9a0;
+  border-radius: 8px;
+  color: #a86b1f;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  text-align: left;
+  margin-bottom: 0.5rem;
+}

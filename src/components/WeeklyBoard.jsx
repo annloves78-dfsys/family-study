@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { fetchBoard, addStamp, removeStamp, setTarget, addPayout } from '../api'
+import { fetchBoard, addStamp, removeStamp, setTarget, addPayout, widgetToken } from '../api'
 
 const RATE = 500
 const MAX_STAMPS = 15
@@ -47,7 +47,23 @@ function getWeekDays(offset = 0) {
 
 const DAY_LABELS = ['월', '화', '수', '목', '금', '토', '일']
 
-export default function WeeklyBoard({ userId, onLogout, onToday }) {
+// 위젯이 부를 주소 (지금 열려 있는 주소 기준)
+const WIDGET_URL = typeof document !== 'undefined'
+  ? new URL('api/', document.baseURI).href
+  : '/api/'
+
+function copy(text) {
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).then(
+      () => alert('복사했어요'),
+      () => window.prompt('길게 눌러 복사하세요', text)
+    )
+  } else {
+    window.prompt('길게 눌러 복사하세요', text)
+  }
+}
+
+export default function WeeklyBoard({ userId, onLogout, onToday, onPreview }) {
   const [weekOffset, setWeekOffset] = useState(0)
   const [stamps, setStamps] = useState({})       // { `kidId_dateStr`: { stampIndex: { isCouponUsed } } }
   const [targets, setTargets] = useState({})     // { `kidId_dateStr`: count }
@@ -58,6 +74,9 @@ export default function WeeklyBoard({ userId, onLogout, onToday }) {
   const [batchHours, setBatchHours] = useState({})
   const [couponMode, setCouponMode] = useState({}) // { kidId: boolean }
   const [historyKid, setHistoryKid] = useState(null) // 지급 내역 모달
+  const [widgetKid, setWidgetKid] = useState(null)   // 위젯 설정 모달
+  const [widgetInfo, setWidgetInfo] = useState(null)
+  const [widgetBusy, setWidgetBusy] = useState(false)
   const [loadError, setLoadError] = useState('')
 
   const weekDays = getWeekDays(weekOffset)
@@ -244,6 +263,21 @@ export default function WeeklyBoard({ userId, onLogout, onToday }) {
     }
   }
 
+  // 위젯용 토큰 발급
+  const handleWidget = async (kidObj) => {
+    setWidgetKid(kidObj)
+    setWidgetInfo(null)
+    setWidgetBusy(true)
+    try {
+      const res = await widgetToken(kidObj.id)
+      setWidgetInfo(res)
+    } catch (e) {
+      alert('위젯 설정 만들기 실패: ' + (e?.message || e))
+      setWidgetKid(null)
+    }
+    setWidgetBusy(false)
+  }
+
   // 용돈 지급 및 마이너스 초기화
   const handlePayout = async (kidId) => {
     const s = stats[kidId] || { unsettledMoney: 0, waitCoupons: 0, lastStampDate: null }
@@ -336,6 +370,26 @@ export default function WeeklyBoard({ userId, onLogout, onToday }) {
                 {couponMode[kid.id] ? '🎫 쿠폰 모드 ON' : `🎟 사용가능: ${kidStats.usableCoupons}장`}
                 <span className="coupon-wait">(대기: {kidStats.waitCoupons})</span>
               </button>
+
+              {isAdmin && onPreview && (
+                <button
+                  className="btn-preview"
+                  onClick={() => onPreview(kid.id)}
+                  title="아이가 보는 화면을 그대로 봅니다"
+                >
+                  아이 화면 보기
+                </button>
+              )}
+
+              {isAdmin && (
+                <button
+                  className="btn-preview"
+                  onClick={() => handleWidget(kid)}
+                  title="홈 화면 위젯 버튼 만들기"
+                >
+                  📱 위젯
+                </button>
+              )}
 
               {isAdmin && (
                 <button
@@ -477,6 +531,58 @@ export default function WeeklyBoard({ userId, onLogout, onToday }) {
                 </tr>
               </tfoot>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* 위젯 설정 모달 */}
+      {widgetKid && (
+        <div className="modal-overlay" onClick={() => setWidgetKid(null)}>
+          <div className="modal-box widget-box" onClick={e => e.stopPropagation()}>
+            <h2>📱 {widgetKid.name} 홈 화면 위젯</h2>
+
+            {widgetBusy && <p className="modal-hint">만드는 중...</p>}
+
+            {widgetInfo && (
+              <>
+                <p className="modal-hint">
+                  안드로이드 <b>HTTP Shortcuts</b> 앱에 아래 내용을 그대로 넣으면,
+                  홈 화면 버튼 한 번에 도장이 하나 찍힙니다.
+                </p>
+
+                <div className="widget-field">
+                  <div className="widget-label">주소 (Method: POST)</div>
+                  <code className="widget-code">{WIDGET_URL}?action=stamp_next</code>
+                  <button className="widget-copy" onClick={() => copy(`${WIDGET_URL}?action=stamp_next`)}>복사</button>
+                </div>
+
+                <div className="widget-field">
+                  <div className="widget-label">Body (Content type: application/json)</div>
+                  <code className="widget-code small">
+                    {JSON.stringify({ token: widgetInfo.token, userId: widgetInfo.userId })}
+                  </code>
+                  <button
+                    className="widget-copy"
+                    onClick={() => copy(JSON.stringify({ token: widgetInfo.token, userId: widgetInfo.userId }))}
+                  >복사</button>
+                </div>
+
+                <div className="widget-field">
+                  <div className="widget-label">취소 버튼도 만들려면 (주소만 바꾸면 됩니다)</div>
+                  <code className="widget-code">{WIDGET_URL}?action=stamp_undo</code>
+                  <button className="widget-copy" onClick={() => copy(`${WIDGET_URL}?action=stamp_undo`)}>복사</button>
+                </div>
+
+                <p className="widget-warn">
+                  ⚠ 이 내용은 {widgetKid.name}의 열쇠입니다. 다른 사람에게 보내지 마세요.<br />
+                  {widgetKid.name}가 비밀번호를 바꾸면 위젯이 멈춥니다 — 그때 여기서 다시 만드세요.
+                </p>
+              </>
+            )}
+
+            <div className="modal-btns">
+              <button className="btn-ghost" onClick={() => setWidgetKid(null)}>닫기</button>
+            </div>
           </div>
         </div>
       )}

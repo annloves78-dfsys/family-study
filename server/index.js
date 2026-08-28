@@ -174,6 +174,42 @@ async function buildStats() {
   return stats
 }
 
+// 한국 시간 기준 오늘 (서버는 UTC 로 돌 수 있으므로)
+function todayKST() {
+  const now = new Date(Date.now() + 9 * 60 * 60 * 1000)
+  return now.toISOString().slice(0, 10)
+}
+
+// 그날의 진행 상황 (위젯 응답용)
+async function daySummary(userId, dateStr) {
+  const { rows } = await pool.query(
+    `SELECT
+       (SELECT COUNT(*) FROM study_stamps WHERE user_id = $1 AND date_str = $2) AS total,
+       (SELECT COALESCE(target_count, 0) FROM daily_targets WHERE user_id = $1 AND date_str = $2) AS target`,
+    [userId, dateStr]
+  )
+  const total = Number(rows[0]?.total || 0)
+  const target = Number(rows[0]?.target || 0)
+  return {
+    dateStr,
+    total,
+    target,
+    done: Math.min(total, target),
+    extra: Math.max(0, total - target),
+  }
+}
+
+// 위젯이 그대로 띄울 짧은 안내문
+async function dayMessage(userId, dateStr) {
+  const { rows } = await pool.query('SELECT name FROM profiles WHERE id = $1', [userId])
+  const name = rows[0]?.name || userId
+  const s = await daySummary(userId, dateStr)
+  let msg = `${name} ${s.done}/${s.target}시간`
+  if (s.extra > 0) msg += ` (+${s.extra}⭐)`
+  if (s.target > 0 && s.done >= s.target) msg += ' 목표 달성!'
+  return msg
+}
+
 // ---------- 액션 ----------
 const actions = {
   async health() {
@@ -266,6 +302,70 @@ const actions = {
     ])
 
     return { weekStamps: stampRes.rows, weekTargets: targetRes.rows, stats }
+  },
+
+  // ---- 위젯용 토큰 발급 (관리자만) ----
+  //  홈 화면 위젯에 넣어둘 오래 가는 토큰입니다.
+  //  ⚠ 그 아이가 비밀번호를 바꾸면 이 토큰도 함께 만료됩니다 (다시 발급하세요).
+  async widget_token(b) {
+    await requireAdmin(b)
+    const targetId = typeof b.userId === 'string' ? b.userId : ''
+    const { rows } = await pool.query('SELECT id, name FROM profiles WHERE id = $1', [targetId])
+    if (!rows[0]) throw new ApiError(404, '사용자를 찾을 수 없습니다.')
+
+    const token = crypto.randomBytes(32).toString('hex')
+    await pool.query(
+      `INSERT INTO sessions (token, user_id, expires_at)
+       VALUES ($1, $2, NOW() + make_interval(days => 3650))`,
+      [token, targetId]
+    )
+    return { token, userId: targetId, name: rows[0].name }
+  },
+
+  // ---- 위젯용: 오늘 도장 하나 추가 (번호는 서버가 계산) ----
+  //  홈 화면 위젯이 통째로 보내기 쉽도록, 몸통은 {token, userId} 만 있으면 됩니다.
+  async stamp_next(b) {
+    const targetId = typeof b.userId === 'string' ? b.userId : ''
+    await requireCanEdit(b, targetId)
+
+    const dateStr = isDate(b.dateStr) ? b.dateStr : todayKST()
+
+    // 다음 번호를 찾아 넣는 것을 한 번에 (동시에 두 번 눌러도 꼬이지 않게)
+    const { rows } = await pool.query(
+      `INSERT INTO study_stamps (user_id, date_str, stamp_index, is_coupon_used)
+       SELECT $1, $2,
+              COALESCE(MAX(stamp_index) + 1, 0),
+              false
+         FROM study_stamps WHERE user_id = $1 AND date_str = $2
+       ON CONFLICT (user_id, date_str, stamp_index) DO NOTHING
+       RETURNING stamp_index`,
+      [targetId, dateStr]
+    )
+    if (rows.length === 0) throw new ApiError(409, '방금 눌린 것 같아요. 다시 해보세요.')
+
+    return { ok: true, ...(await daySummary(targetId, dateStr)), message: await dayMessage(targetId, dateStr) }
+  },
+
+  // ---- 위젯용: 오늘 마지막 도장 하나 취소 ----
+  async stamp_undo(b) {
+    const targetId = typeof b.userId === 'string' ? b.userId : ''
+    await requireCanEdit(b, targetId)
+
+    const dateStr = isDate(b.dateStr) ? b.dateStr : todayKST()
+
+    const { rows } = await pool.query(
+      `DELETE FROM study_stamps
+        WHERE ctid = (
+          SELECT ctid FROM study_stamps
+           WHERE user_id = $1 AND date_str = $2
+           ORDER BY stamp_index DESC LIMIT 1
+        )
+        RETURNING stamp_index`,
+      [targetId, dateStr]
+    )
+    if (rows.length === 0) throw new ApiError(404, '지울 도장이 없어요.')
+
+    return { ok: true, ...(await daySummary(targetId, dateStr)), message: await dayMessage(targetId, dateStr) }
   },
 
   async stamp_add(b) {
