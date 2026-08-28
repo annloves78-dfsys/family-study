@@ -29,6 +29,11 @@ echo "== API 파일 =="
 cp "$SRC/api/index.js" "$SRC/api/package.json" /home/$LINUX_USER/api/
 chown -R $LINUX_USER:$LINUX_USER /home/$LINUX_USER
 
+# 권한 (nginx 가 화면은 읽고, API 코드는 못 읽게)
+chmod 751 /home/$LINUX_USER
+chmod -R a+rX /home/$LINUX_USER/www
+chmod 750 /home/$LINUX_USER/api
+
 echo "== 의존성 (pg) =="
 cd /home/$LINUX_USER/api
 sudo -u $LINUX_USER npm install --omit=dev --no-audit --no-fund
