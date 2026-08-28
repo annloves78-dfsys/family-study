@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import Login from './components/Login'
 import WeeklyBoard from './components/WeeklyBoard'
+import TodayBoard from './components/TodayBoard'
 import { getToken, getUserId, saveSession, clearSession } from './session'
 import { me, logout as apiLogout } from './api'
 
@@ -8,6 +9,8 @@ export default function App() {
   // 저장된 토큰이 있으면 서버에 확인 후 자동 로그인
   const [userId, setUserId] = useState(null)
   const [checking, setChecking] = useState(() => Boolean(getToken()))
+  // 아이는 '오늘' 화면으로 시작합니다 (앱 열면 바로 도장 찍게)
+  const [view, setView] = useState('today')
 
   useEffect(() => {
     if (!getToken()) return
@@ -28,6 +31,7 @@ export default function App() {
 
   const handleLogin = (id, token) => {
     saveSession(id, token)
+    setView('today')
     setUserId(id)
   }
 
@@ -45,5 +49,26 @@ export default function App() {
     return <Login onLogin={handleLogin} />
   }
 
-  return <WeeklyBoard userId={userId} onLogout={handleLogout} />
+  // 관리자는 항상 주간 화면 (목표 배정·지급을 해야 하므로)
+  if (userId === 'admin') {
+    return <WeeklyBoard userId={userId} onLogout={handleLogout} />
+  }
+
+  if (view === 'today') {
+    return (
+      <TodayBoard
+        userId={userId}
+        onLogout={handleLogout}
+        onWeek={() => setView('week')}
+      />
+    )
+  }
+
+  return (
+    <WeeklyBoard
+      userId={userId}
+      onLogout={handleLogout}
+      onToday={() => setView('today')}
+    />
+  )
 }

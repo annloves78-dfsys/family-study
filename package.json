@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "deploy:build": "vite build && node tools/prepare-deploy.mjs",
-    "export:supabase": "node tools/export-supabase.mjs"
+    "export:supabase": "node tools/export-supabase.mjs",
+    "make:icons": "node tools/make-icons.mjs"
   },
   "dependencies": {
     "react": "^18.2.0",

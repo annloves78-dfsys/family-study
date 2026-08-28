@@ -47,7 +47,7 @@ function getWeekDays(offset = 0) {
 
 const DAY_LABELS = ['월', '화', '수', '목', '금', '토', '일']
 
-export default function WeeklyBoard({ userId, onLogout }) {
+export default function WeeklyBoard({ userId, onLogout, onToday }) {
   const [weekOffset, setWeekOffset] = useState(0)
   const [stamps, setStamps] = useState({})       // { `kidId_dateStr`: { stampIndex: { isCouponUsed } } }
   const [targets, setTargets] = useState({})     // { `kidId_dateStr`: count }
@@ -287,6 +287,9 @@ export default function WeeklyBoard({ userId, onLogout }) {
           <span className="user-badge">
             {isAdmin ? '👩 관리자' : `${KIDS.find(k => k.id === userId)?.icon} ${KIDS.find(k => k.id === userId)?.name}`}
           </span>
+          {onToday && (
+            <button className="btn-today" onClick={onToday}>오늘 화면</button>
+          )}
           <button className="btn-logout" onClick={onLogout}>로그아웃</button>
         </div>
       </header>

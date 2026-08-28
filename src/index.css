@@ -710,3 +710,226 @@ body {
   color: rgba(255,255,255,0.8);
   font-size: 0.85rem;
 }
+
+/* ===== 오늘 화면 (아이들이 매일 보는 화면) ===== */
+.today-page {
+  min-height: 100vh;
+  padding: 1rem 1rem calc(2rem + env(safe-area-inset-bottom));
+  padding-top: calc(1rem + env(safe-area-inset-top));
+  max-width: 520px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.today-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.today-who { font-size: 1.25rem; font-weight: 900; }
+
+.today-header-btns { display: flex; gap: 0.4rem; }
+
+.today-link {
+  padding: 0.4rem 0.7rem;
+  border: 1px solid #d9e0ff;
+  border-radius: 10px;
+  background: #fff;
+  color: #4d5bd8;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.today-link.ghost { color: #8a90a6; border-color: #e7e9f2; }
+
+/* 어제 / 오늘 */
+.today-daypick {
+  display: flex;
+  gap: 0.4rem;
+  background: #e9edff;
+  padding: 0.25rem;
+  border-radius: 12px;
+  margin-bottom: 0.75rem;
+}
+
+.daypick-btn {
+  padding: 0.45rem 1.4rem;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: #6b73a0;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.daypick-btn.active {
+  background: #fff;
+  color: #4d5bd8;
+  box-shadow: 0 1px 4px rgba(102,126,234,0.25);
+}
+
+.today-date { color: #8a90a6; font-size: 0.9rem; margin-bottom: 0.5rem; }
+
+.today-progress {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  margin-bottom: 0.6rem;
+}
+
+.today-count { font-size: 3rem; font-weight: 900; color: #4d5bd8; line-height: 1; }
+.today-of { font-size: 1.1rem; font-weight: 700; color: #8a90a6; }
+.today-extra { font-size: 1rem; font-weight: 700; color: #ff9966; margin-left: 0.3rem; }
+
+.today-bar {
+  width: 100%;
+  height: 10px;
+  background: #e9edff;
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 1rem;
+}
+
+.today-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #667eea, #764ba2);
+  border-radius: 999px;
+  transition: width 0.25s ease;
+}
+
+.today-error {
+  width: 100%;
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 0.75rem;
+  background: #fff2f2;
+  border: 1px solid #ffcccc;
+  border-radius: 10px;
+  color: #c0392b;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* 도장 동그라미 — 손가락으로 누르기 좋게 크게 */
+.today-stamps {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.7rem;
+  width: 100%;
+  margin-bottom: 1rem;
+}
+
+.today-stamp {
+  aspect-ratio: 1;
+  min-height: 68px;
+  border-radius: 50%;
+  border: 3px dashed #c9d2f5;
+  background: #fff;
+  color: #b9c0d8;
+  font-family: inherit;
+  font-size: 1.6rem;
+  font-weight: 800;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.12s, background 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.today-stamp:active { transform: scale(0.92); }
+.today-stamp:disabled { opacity: 0.55; }
+
+.today-stamp.filled {
+  border-style: solid;
+  border-color: #ffb3b5;
+  background: #fff0f0;
+}
+
+.today-stamp.coupon { border-color: #ffd28a; background: #fff8ec; }
+
+.today-stamp.extra { border-color: #ffd28a; }
+.today-stamp.empty.extra { border-style: dotted; color: #d8c4a0; }
+.today-stamp.filled.extra { background: #fff8ec; }
+
+.today-done {
+  width: 100%;
+  padding: 0.7rem;
+  margin-bottom: 1rem;
+  text-align: center;
+  background: #f2fbf5;
+  border: 1px solid #cdeed8;
+  border-radius: 12px;
+  color: #2e7d4f;
+  font-weight: 800;
+}
+
+.today-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+  width: 100%;
+  margin-bottom: 0.75rem;
+}
+
+.today-card {
+  padding: 0.8rem;
+  background: #fff;
+  border: 1px solid #e7e9f2;
+  border-radius: 14px;
+  text-align: center;
+}
+
+.today-card-label { font-size: 0.75rem; color: #8a90a6; margin-bottom: 0.25rem; }
+.today-card-value { font-size: 1.15rem; font-weight: 900; color: #4d5bd8; }
+
+.today-coupon {
+  width: 100%;
+  padding: 0.8rem;
+  border: 1px solid #ffd9a0;
+  border-radius: 14px;
+  background: #fff8ec;
+  color: #a86b1f;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.today-coupon.active {
+  background: #ffedd0;
+  border-color: #ffb454;
+  color: #8a4b00;
+}
+
+.today-paid {
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #2e7d4f;
+}
+
+.btn-today {
+  padding: 0.4rem 0.7rem;
+  border: 1px solid rgba(255,255,255,0.5);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.15);
+  color: inherit;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+@media (max-width: 360px) {
+  .today-stamps { grid-template-columns: repeat(3, 1fr); }
+  .today-count { font-size: 2.5rem; }
+}
