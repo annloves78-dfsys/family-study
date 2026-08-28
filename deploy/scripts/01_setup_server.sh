@@ -44,8 +44,19 @@ else
   echo "   DB 를 만들었습니다: $DB_NAME"
 fi
 
-# 학원앱 DB 에 손대지 못하게 확실히 막습니다
-sudo -u postgres psql -c "REVOKE ALL ON DATABASE annest FROM $DB_USER;" 2>/dev/null || true
+# 다른 앱 DB 에 손대지 못하게 막습니다
+#  - 지금 있는 것(annest 등)뿐 아니라, 나중에 아들 게임앱 DB 가 생겨도
+#    이 스크립트를 다시 돌리면 그것까지 같이 막힙니다.
+#  - 남의 DB 의 PUBLIC 권한은 건드리지 않습니다 (학원앱이 깨지지 않도록).
+#    stamp 롤에서만 회수합니다.
+OTHER_DBS=$(sudo -u postgres psql -tAc \
+  "SELECT datname FROM pg_database WHERE datistemplate = false AND datname <> '$DB_NAME'")
+for db in $OTHER_DBS; do
+  sudo -u postgres psql -c "REVOKE ALL ON DATABASE \"$db\" FROM $DB_USER;" >/dev/null 2>&1 || true
+  echo "   $DB_USER 롤의 $db 접속 권한 회수"
+done
+
+# 반대로 stamp DB 는 stamp 롤만 들어올 수 있게
 sudo -u postgres psql -c "REVOKE ALL ON DATABASE $DB_NAME FROM PUBLIC;"
 sudo -u postgres psql -c "GRANT CONNECT ON DATABASE $DB_NAME TO $DB_USER;"
 

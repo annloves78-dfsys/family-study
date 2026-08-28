@@ -10,24 +10,44 @@ Supabase → **가비아 서버(1.201.117.244)** 로 옮기는 절차입니다.
 같은 서버에 이미 두 개가 돌고 있습니다. 도장판은 **세 번째 칸**을 새로 만들어 들어갑니다.
 기존 두 개의 설정 파일은 **하나도 건드리지 않습니다.**
 
-| | 학원앱 (annest) | 아들 게임앱 (mift) | **도장판 (stamp)** |
+| | 학원앱 (annest) | 아들 게임앱 (boss-raid) | **도장판 (stamp)** |
 |---|---|---|---|
 | 리눅스 계정 | `annest` | `ubuntu` | **`stamp`** |
 | 파일 위치 | `/home/annest` | `/home/ubuntu/miftgotothetop` | **`/home/stamp`** |
-| 프로세스 | systemd `annest-api`, `annest-postgrest` | pm2 | **systemd `stamp-api`** |
-| 포트 | 3001, 3002 | (pm2) | **3010** |
+| 프로세스 | systemd `annest-api`, `annest-postgrest` | pm2 `boss-raid` | **systemd `stamp-api`** |
+| **포트** | **3001, 3002** | **8080** | **3010** |
 | nginx | `sites-available/annest` | `.../mift` | **`.../stamp`** |
-| 데이터베이스 | PostgreSQL `annest` DB | 별도 Supabase | **PostgreSQL `stamp` DB** |
+| 데이터베이스 | PostgreSQL `annest` DB | Supabase (이전 중) | **PostgreSQL `stamp` DB** |
 | 도메인 | `anne.ai.kr` | `mift.anne.ai.kr` | **`stamp.anne.ai.kr`** |
 
-- `stamp` 롤은 `annest` DB 에 **접속 권한이 없습니다** (`01_setup_server.sh` 가 REVOKE 합니다).
+세 앱의 포트가 서로 겹치지 않는 것을 확인했습니다 (3001 / 3002 / 8080 / 3010).
+
+- `stamp` 롤은 **다른 DB 에 접속할 수 없습니다.** `01_setup_server.sh` 가 stamp 를 뺀
+  모든 DB 에서 이 롤의 권한을 회수합니다. 나중에 게임앱 DB 가 생기면 이 스크립트를
+  한 번 더 돌리면 그것까지 같이 막힙니다.
+- 반대로 `stamp` DB 는 PUBLIC 권한을 회수해 두어서, 다른 앱 롤이 들어올 수 없습니다.
 - `stamp` 계정은 로그인이 안 되는 계정이고, 다른 사람 폴더를 읽을 권한이 없습니다.
 - DB 는 `127.0.0.1` 만 듣습니다. 인터넷에서 직접 접속할 수 없습니다.
 - API 는 `127.0.0.1:3010` 만 듣습니다. 바깥에서는 nginx 를 통해서만 닿습니다.
 
-> **램**: 서버가 1코어 / 960MB 라 여유가 많지 않습니다.
-> `stamp-api` 는 systemd 에서 **최대 200MB** 로 묶어 뒀습니다 (`MemoryMax=200M`).
-> 실제로는 60~90MB 쯤 씁니다. 학원앱을 밀어내지 않습니다.
+### ⚠ 램을 먼저 올리세요
+
+지금 **1코어 / 960MB** 인데 여기에 세 개가 같이 돕니다.
+
+| | 대략 |
+|---|---|
+| PostgreSQL 17 | 100~150MB |
+| PostgREST (annest) | 30~50MB |
+| annest-api (Node) | 60~80MB |
+| boss-raid (Node + Socket.IO 게임서버) | 100~200MB |
+| **stamp-api (새로 추가)** | **60~90MB** |
+| 합계 | **350~570MB** + OS |
+
+960MB 로는 빠듯하고, 게임 접속자가 몰리면 스왑으로 밀려 전부 느려집니다.
+**2GB 이상으로 증설한 뒤에 올리시는 걸 권합니다.**
+
+`stamp-api` 는 systemd 에서 **최대 200MB** 로 묶어 뒀습니다 (`MemoryMax=200M`).
+도장판이 폭주해도 학원앱·게임앱을 밀어내지는 않습니다.
 
 ---
 
