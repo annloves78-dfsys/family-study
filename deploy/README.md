@@ -18,7 +18,7 @@ Supabase → **가비아 서버(1.201.117.244)** 로 옮기는 절차입니다.
 | **포트** | **3001, 3002** | **8080** | **3010** |
 | nginx | `sites-available/annest` | `.../mift` | **`.../stamp`** |
 | 데이터베이스 | PostgreSQL `annest` DB | Supabase (이전 중) | **PostgreSQL `stamp` DB** |
-| 도메인 | `anne.ai.kr` | `mift.anne.ai.kr` | **`stamp.anne.ai.kr`** |
+| 도메인 | `anne.ai.kr` | `mift.anne.ai.kr` | **`family.anne.ai.kr`** (확인용: `stamp.anne.ai.kr`) |
 
 세 앱의 포트가 서로 겹치지 않는 것을 확인했습니다 (3001 / 3002 / 8080 / 3010).
 
@@ -46,21 +46,15 @@ stamp -> postgres  막힘
 stamp -> stamp     됨
 ```
 
-### ⚠ 램을 먼저 올리세요
+### 램 (2026-08-29 실측)
 
-지금 **1코어 / 960MB** 인데 여기에 세 개가 같이 돕니다.
+**1코어 / 1.9GB 로 증설된 상태**에서 세 개가 같이 돕니다. 여유롭습니다.
 
-| | 대략 |
+| | 실측 |
 |---|---|
-| PostgreSQL 17 | 100~150MB |
-| PostgREST (annest) | 30~50MB |
-| annest-api (Node) | 60~80MB |
-| boss-raid (Node + Socket.IO 게임서버) | 100~200MB |
-| **stamp-api (새로 추가)** | **60~90MB** |
-| 합계 | **350~570MB** + OS |
-
-960MB 로는 빠듯하고, 게임 접속자가 몰리면 스왑으로 밀려 전부 느려집니다.
-**2GB 이상으로 증설한 뒤에 올리시는 걸 권합니다.**
+| boss-raid (게임) | 79.6MB |
+| **stamp-api (도장판)** | **17.3MB** |
+| 전체 사용량 | **488MB / 1.9GB** (여유 1.4GB) |
 
 `stamp-api` 는 systemd 에서 **최대 200MB** 로 묶어 뒀습니다 (`MemoryMax=200M`).
 도장판이 폭주해도 학원앱·게임앱을 밀어내지는 않습니다.
@@ -155,7 +149,46 @@ nginx 설정을 넣고 certbot 으로 인증서까지 받습니다.
 
 ---
 
-## 4. 다 되면
+## 4. family.anne.ai.kr 로 최종 전환
+
+아이들은 `family.anne.ai.kr` 을 **홈 화면에 설치**해서 쓰고 있습니다.
+그래서 최종 주소는 반드시 `family.anne.ai.kr` 이어야 합니다.
+`stamp.anne.ai.kr` 은 옮기는 동안 확인용으로만 씁니다.
+
+nginx 는 **두 주소를 이미 다 받도록** 설정돼 있어서, 전환할 때 서버 설정을
+고칠 필요가 없습니다. DNS 만 바꾸고 인증서만 추가하면 됩니다.
+
+> **서비스워커·manifest 가 없는 것을 확인했습니다.** 아이들이 설치한 것은
+> 홈 화면 바로가기(북마크)라서, 주소를 옮겨도 옛 화면이 캐시에 눌러붙지 않습니다.
+
+### ⚠ 순서를 지켜주세요 — 안 그러면 그 사이 찍은 도장이 사라집니다
+
+확인하는 동안 아이들은 여전히 `family.anne.ai.kr`(=Vercel+Supabase)을 씁니다.
+거기서 찍은 도장은 **가비아 서버에 없습니다.** 그래서 전환 직전에 자료를 한 번 더 가져와야 합니다.
+
+1. **아이들에게 잠깐 쓰지 말라고 합니다** (10분이면 충분)
+2. 내 PC 에서 최신 자료 다시 추출
+   ```bash
+   npm run export:supabase
+   ```
+3. 서버에 올려서 다시 넣기 (기존 내용을 지우고 새로 채웁니다)
+   ```bash
+   scp deploy/sql/02_data.sql 서버:~/stamp-deploy/sql/
+   sudo -u postgres psql -v ON_ERROR_STOP=1 -d stamp -f ~/stamp-deploy/sql/02_data.sql
+   sudo -u postgres psql -v ON_ERROR_STOP=1 -d stamp -f ~/stamp-deploy/sql/03_backfill_settled_until.sql
+   ```
+4. 가비아 DNS 에서 `family` 레코드 교체
+   - `CNAME family → ...vercel-dns...` **삭제**
+   - `A family → 1.201.117.244` **추가**
+5. 바로 이어서 인증서 추가
+   ```bash
+   sudo bash ~/stamp-deploy/scripts/04_switch_to_family.sh
+   ```
+
+4번과 5번 사이 몇 분간 `https://family.anne.ai.kr` 에 인증서 경고가 뜹니다. 정상입니다.
+(HTTPS 인증서는 그 주소가 이 서버를 가리켜야만 발급받을 수 있어서 순서를 바꿀 수 없습니다.)
+
+## 5. 그다음
 
 - Vercel 프로젝트는 배포를 꺼두세요 (둘 다 살아있으면 자료가 갈립니다)
 - Supabase 프로젝트는 **1~2주 그대로 두었다가** 문제 없으면 삭제하세요 (되돌릴 여지)
@@ -163,7 +196,7 @@ nginx 설정을 넣고 certbot 으로 인증서까지 받습니다.
 
 ---
 
-## 5. API 구조 (참고)
+## 6. API 구조 (참고)
 
 `POST /api/?action=<액션>`, 본문은 JSON. 로그인하면 받은 토큰을 본문에 같이 보냅니다.
 
