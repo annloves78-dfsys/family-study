@@ -175,9 +175,7 @@ export default function TodayBoard({ userId, kidId = userId, onLogout, onWeek, i
       <header className="today-header">
         <span className="today-who">{kid.icon} {kid.name}</span>
         <div className="today-header-btns">
-          <button className="today-link" onClick={onWeek}>
-            {isPreview ? '관리자 화면' : '주간 보기'}
-          </button>
+          <button className="today-link" onClick={onWeek}>주간 보기</button>
           {!isPreview && (
             <button className="today-link ghost" onClick={onLogout}>로그아웃</button>
           )}

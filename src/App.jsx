@@ -13,6 +13,8 @@ export default function App() {
   const [view, setView] = useState('today')
   // 관리자가 잠깐 아이 화면을 들여다보는 상태 (아이 비밀번호 없이)
   const [previewKid, setPreviewKid] = useState(null)
+  // 관리자가 마지막으로 보던 아이 탭 (미리보기에서 돌아와도 유지)
+  const [adminKid, setAdminKid] = useState(null)
 
   useEffect(() => {
     if (!getToken()) return
@@ -68,7 +70,9 @@ export default function App() {
       <WeeklyBoard
         userId={userId}
         onLogout={handleLogout}
-        onPreview={setPreviewKid}
+        initialKidId={adminKid}
+        onKidChange={setAdminKid}
+        onPreview={(id) => { setAdminKid(id); setPreviewKid(id) }}
       />
     )
   }

@@ -63,7 +63,7 @@ function copy(text) {
   }
 }
 
-export default function WeeklyBoard({ userId, onLogout, onToday, onPreview }) {
+export default function WeeklyBoard({ userId, onLogout, onToday, onPreview, initialKidId, onKidChange }) {
   const [weekOffset, setWeekOffset] = useState(0)
   const [stamps, setStamps] = useState({})       // { `kidId_dateStr`: { stampIndex: { isCouponUsed } } }
   const [targets, setTargets] = useState({})     // { `kidId_dateStr`: count }
@@ -88,7 +88,14 @@ export default function WeeklyBoard({ userId, onLogout, onToday, onPreview }) {
     ? KIDS
     : [...KIDS.filter(k => k.id === userId), ...KIDS.filter(k => k.id !== userId)]
 
-  const [activeKidId, setActiveKidId] = useState(tabKids[0].id)
+  // 아이 화면을 보고 돌아왔을 때 보던 탭이 그대로 유지되도록 초기값을 받습니다
+  const [activeKidId, setActiveKidIdRaw] = useState(
+    tabKids.some(k => k.id === initialKidId) ? initialKidId : tabKids[0].id
+  )
+  const setActiveKidId = (id) => {
+    setActiveKidIdRaw(id)
+    onKidChange?.(id)
+  }
   const activeKid = tabKids.find(k => k.id === activeKidId) || tabKids[0]
 
   const todayObj = new Date()
