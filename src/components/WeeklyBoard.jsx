@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { supabase } from '../supabaseClient'
-import { addStamp, removeStamp, setTarget } from '../db'
+import { fetchBoard, addStamp, removeStamp, setTarget, addPayout } from '../api'
 
 const RATE = 500
 const MAX_STAMPS = 15
@@ -16,6 +15,22 @@ function toLocalDate(date) {
   const m = String(date.getMonth() + 1).padStart(2, '0')
   const d = String(date.getDate()).padStart(2, '0')
   return `${y}-${m}-${d}`
+}
+
+// '2026-08-27' -> '8/27'
+function formatMD(dateStr) {
+  if (!dateStr) return ''
+  const parts = String(dateStr).slice(0, 10).split('-')
+  if (parts.length < 3) return String(dateStr)
+  return `${parseInt(parts[1])}/${parseInt(parts[2])}`
+}
+
+// timestamptz -> '8/27'
+function formatStamp(ts) {
+  if (!ts) return ''
+  const d = new Date(ts)
+  if (isNaN(d.getTime())) return ''
+  return `${d.getMonth() + 1}/${d.getDate()}`
 }
 
 function getWeekDays(offset = 0) {
@@ -40,14 +55,23 @@ export default function WeeklyBoard({ userId, onLogout }) {
   const [stats, setStats] = useState({})
   const [loading, setLoading] = useState(true)
   const [processing, setProcessing] = useState(new Set())
-  const [batchHours, setBatchHours] = useState({}) 
+  const [batchHours, setBatchHours] = useState({})
   const [couponMode, setCouponMode] = useState({}) // { kidId: boolean }
+  const [historyKid, setHistoryKid] = useState(null) // 지급 내역 모달
+  const [loadError, setLoadError] = useState('')
 
   const weekDays = getWeekDays(weekOffset)
   const weekLabel = `${weekDays[0]} ~ ${weekDays[6]}`
   const isAdmin = userId === 'admin'
-  const visibleKids = isAdmin ? KIDS : KIDS.filter(k => k.id === userId)
-  
+
+  // 탭 순서: 관리자는 원래 순서, 아이는 자기 것이 첫 번째
+  const tabKids = isAdmin
+    ? KIDS
+    : [...KIDS.filter(k => k.id === userId), ...KIDS.filter(k => k.id !== userId)]
+
+  const [activeKidId, setActiveKidId] = useState(tabKids[0].id)
+  const activeKid = tabKids.find(k => k.id === activeKidId) || tabKids[0]
+
   const todayObj = new Date()
   const yesterdayObj = new Date(todayObj)
   yesterdayObj.setDate(todayObj.getDate() - 1)
@@ -57,14 +81,11 @@ export default function WeeklyBoard({ userId, onLogout }) {
   const loadData = useCallback(async (isInitial = false) => {
     if (isInitial) setLoading(true)
     try {
-      // 이번 주 도장
-      const { data: stampData } = await supabase
-        .from('study_stamps')
-        .select('user_id, date_str, stamp_index, is_coupon_used')
-        .in('date_str', weekDays)
+      const data = await fetchBoard(weekDays)
 
+      // 이번 주 도장
       const stampMap = {}
-      ;(stampData || []).forEach(s => {
+      ;(data.weekStamps || []).forEach(s => {
         const key = `${s.user_id}_${s.date_str}`
         if (!stampMap[key]) stampMap[key] = {}
         stampMap[key][s.stamp_index] = { isCouponUsed: s.is_coupon_used }
@@ -72,14 +93,9 @@ export default function WeeklyBoard({ userId, onLogout }) {
       setStamps(stampMap)
 
       // 이번 주 목표
-      const { data: targetData } = await supabase
-        .from('daily_targets')
-        .select('user_id, date_str, target_count')
-        .in('date_str', weekDays)
-
       const targetMap = {}
       const inputMap = {}
-      ;(targetData || []).forEach(t => {
+      ;(data.weekTargets || []).forEach(t => {
         const key = `${t.user_id}_${t.date_str}`
         targetMap[key] = t.target_count
         inputMap[key] = String(t.target_count)
@@ -87,54 +103,12 @@ export default function WeeklyBoard({ userId, onLogout }) {
       setTargets(targetMap)
       setTargetInputs(prev => ({ ...inputMap, ...prev }))
 
-      // 전체 통계
-      const { data: allStamps } = await supabase
-        .from('study_stamps')
-        .select('user_id, date_str, stamp_index, is_coupon_used')
-
-      const { data: allTargets } = await supabase
-        .from('daily_targets')
-        .select('user_id, date_str, target_count')
-
-      const { data: payouts } = await supabase
-        .from('custom_events')
-        .select('user_id, amount, coupon_amount')
-        .eq('event_type', 'payout')
-
-      const targetLookup = {}
-      ;(allTargets || []).forEach(t => {
-        targetLookup[`${t.user_id}_${t.date_str}`] = t.target_count
-      })
-
-      const statMap = {}
-      KIDS.forEach(k => {
-        let money = 0, unsettledCoupons = 0, usedCoupons = 0
-        ;(allStamps || []).filter(s => s.user_id === k.id).forEach(s => {
-          const target = targetLookup[`${k.id}_${s.date_str}`] || 0
-          if (s.stamp_index < target) {
-             money += RATE 
-             if (s.is_coupon_used) usedCoupons += 1
-          } else {
-             unsettledCoupons += 1 
-          }
-        })
-        
-        let paidMoney = 0
-        let paidCoupons = 0
-        ;(payouts || []).filter(p => p.user_id === k.id).forEach(p => {
-           paidMoney -= p.amount // payouts are stored as negative numbers
-           paidCoupons += p.coupon_amount
-        })
-
-        const unsettledMoney = money - paidMoney
-        const usableCoupons = paidCoupons - usedCoupons
-        const waitCoupons = unsettledCoupons - paidCoupons
-
-        statMap[k.id] = { unsettledMoney, usableCoupons, waitCoupons }
-      })
-      setStats(statMap)
+      // 전체 통계 (서버에서 계산해서 내려줍니다)
+      setStats(data.stats || {})
+      setLoadError('')
     } catch (e) {
       console.error('로드 실패:', e)
+      setLoadError(e?.message || '데이터를 불러오지 못했습니다.')
     }
     if (isInitial) setLoading(false)
   }, [weekDays.join(',')])
@@ -224,8 +198,8 @@ export default function WeeklyBoard({ userId, onLogout }) {
     }
 
     await executeStampToggle(kidId, dateStr, stampIndex, hasStamp, useCoupon)
-    
-    // 쿠폰 모드는 1회 사용 후 자동 해제 (원치 않으시면 지워도 됩니다)
+
+    // 쿠폰 모드는 1회 사용 후 자동 해제
     if (useCoupon) {
       setCouponMode(prev => ({ ...prev, [kidId]: false }))
     }
@@ -272,36 +246,37 @@ export default function WeeklyBoard({ userId, onLogout }) {
 
   // 용돈 지급 및 마이너스 초기화
   const handlePayout = async (kidId) => {
-    const kidStats = stats[kidId] || { unsettledMoney: 0, waitCoupons: 0 }
-    if (kidStats.unsettledMoney === 0 && kidStats.waitCoupons === 0) return
-    
+    const s = stats[kidId] || { unsettledMoney: 0, waitCoupons: 0, lastStampDate: null }
+    if (s.unsettledMoney === 0 && s.waitCoupons === 0) return
+
     const kidName = KIDS.find(k => k.id === kidId)?.name
+    // 이번 지급이 커버하는 마지막 날짜 = 지금까지 찍힌 도장 중 가장 늦은 날짜
+    const settledUntil = s.lastStampDate || today
+
     let msg = ''
-    if (kidStats.unsettledMoney >= 0) {
-      msg = `${kidName}에게 미정산 금액 ${kidStats.unsettledMoney.toLocaleString()}원과 대기 쿠폰 ${kidStats.waitCoupons}장을 지급할까요?`
+    if (s.unsettledMoney >= 0) {
+      msg = `${kidName}에게 미정산 금액 ${s.unsettledMoney.toLocaleString()}원과 대기 쿠폰 ${s.waitCoupons}장을 지급할까요?`
     } else {
-      msg = `${kidName}의 마이너스 잔액(${kidStats.unsettledMoney.toLocaleString()}원)을 0원으로 초기화`
-      if (kidStats.waitCoupons > 0) msg += `하고 대기 쿠폰 ${kidStats.waitCoupons}장을 지급할까요?`
+      msg = `${kidName}의 마이너스 잔액(${s.unsettledMoney.toLocaleString()}원)을 0원으로 초기화`
+      if (s.waitCoupons > 0) msg += `하고 대기 쿠폰 ${s.waitCoupons}장을 지급할까요?`
       else msg += '할까요?'
     }
-    
+    msg += `\n\n정산 기준일: ${formatMD(settledUntil)}까지`
+
     if (!window.confirm(msg)) return
-    
+
     try {
-      const { error } = await supabase
-        .from('custom_events')
-        .insert([{ 
-          user_id: kidId, 
-          event_type: 'payout', 
-          amount: -kidStats.unsettledMoney,
-          coupon_amount: kidStats.waitCoupons
-        }])
-      if (error) throw error
+      await addPayout(kidId, -s.unsettledMoney, s.waitCoupons, settledUntil)
       await loadData()
     } catch (e) {
-      alert('지급 실패!')
+      alert('지급 실패: ' + (e?.message || JSON.stringify(e)))
     }
   }
+
+  const kid = activeKid
+  const kidStats = stats[kid.id] || { unsettledMoney: 0, usableCoupons: 0, waitCoupons: 0, settledUntil: null, history: [] }
+  const hasUnsettled = kidStats.unsettledMoney !== 0 || kidStats.waitCoupons > 0
+  const canEditKid = isAdmin || kid.id === userId
 
   return (
     <div className="board-page">
@@ -316,6 +291,21 @@ export default function WeeklyBoard({ userId, onLogout }) {
         </div>
       </header>
 
+      {/* 아이 탭 */}
+      <div className="kid-tabs">
+        {tabKids.map(k => (
+          <button
+            key={k.id}
+            className={`kid-tab ${k.id === activeKidId ? 'active' : ''}`}
+            onClick={() => setActiveKidId(k.id)}
+          >
+            <span className="kid-tab-icon">{k.icon}</span>
+            <span className="kid-tab-name">{k.name}</span>
+            {!isAdmin && k.id !== userId && <span className="kid-tab-lock">🔒</span>}
+          </button>
+        ))}
+      </div>
+
       {/* 주 네비게이션 */}
       <div className="week-nav">
         <button className="week-btn" onClick={() => setWeekOffset(o => o - 1)}>◀ 이전</button>
@@ -324,156 +314,199 @@ export default function WeeklyBoard({ userId, onLogout }) {
       </div>
 
       {loading && <div className="loading">불러오는 중...</div>}
+      {loadError && <div className="load-error">⚠ {loadError}</div>}
 
-      {!loading && visibleKids.map(kid => {
-        const kidStats = stats[kid.id] || { unsettledMoney: 0, usableCoupons: 0, waitCoupons: 0 }
-        const hasUnsettled = kidStats.unsettledMoney !== 0 || kidStats.waitCoupons > 0
+      {!loading && (
+        <div className="kid-section">
+          {/* 아이 헤더 */}
+          <div className="kid-header">
+            <span className="kid-name">{kid.icon} {kid.name}</span>
+            <div className="kid-stats">
+              <span className="stat-money">💰 {kidStats.unsettledMoney.toLocaleString()}원</span>
 
-        return (
-          <div key={kid.id} className="kid-section">
-            {/* 아이 헤더 */}
-            <div className="kid-header">
-              <span className="kid-name">{kid.icon} {kid.name}</span>
-              <div className="kid-stats">
-                <span className="stat-money">💰 {kidStats.unsettledMoney.toLocaleString()}원</span>
-                
-                <button 
-                  className={`btn-coupon-toggle ${couponMode[kid.id] ? 'active' : ''}`}
-                  onClick={() => toggleCouponMode(kid.id)}
-                  title="클릭하면 다음 도장은 쿠폰으로 찍힙니다!"
+              <button
+                className={`btn-coupon-toggle ${couponMode[kid.id] ? 'active' : ''}`}
+                onClick={() => toggleCouponMode(kid.id)}
+                disabled={!canEditKid}
+                title="클릭하면 다음 도장은 쿠폰으로 찍힙니다!"
+              >
+                {couponMode[kid.id] ? '🎫 쿠폰 모드 ON' : `🎟 사용가능: ${kidStats.usableCoupons}장`}
+                <span className="coupon-wait">(대기: {kidStats.waitCoupons})</span>
+              </button>
+
+              {isAdmin && (
+                <button
+                  className={`btn-payout ${!hasUnsettled ? 'disabled' : ''}`}
+                  onClick={() => handlePayout(kid.id)}
+                  disabled={!hasUnsettled}
                 >
-                  {couponMode[kid.id] ? '🎫 쿠폰 모드 ON' : `🎟 사용가능: ${kidStats.usableCoupons}장`} 
-                  <span className="coupon-wait">(대기: {kidStats.waitCoupons})</span>
+                  지급
                 </button>
-
-                {isAdmin && (
-                  <button
-                    className={`btn-payout ${!hasUnsettled ? 'disabled' : ''}`}
-                    onClick={() => handlePayout(kid.id)}
-                    disabled={!hasUnsettled}
-                  >
-                    지급
-                  </button>
-                )}
-              </div>
+              )}
             </div>
+          </div>
 
-            {/* 주간 일괄 배정 (관리자) */}
-            {isAdmin && (
-              <div className="batch-row">
-                <span className="batch-label">📅 주간 일괄:</span>
-                <input
-                  type="number"
-                  min="0"
-                  max={MAX_STAMPS}
-                  className="batch-input"
-                  value={batchHours[kid.id] ?? ''}
-                  onChange={e => setBatchHours(prev => ({ ...prev, [kid.id]: e.target.value }))}
-                  onKeyDown={e => e.key === 'Enter' && handleBatchSet(kid.id)}
-                  placeholder="시간"
-                />
-                <span className="batch-unit">시간</span>
-                <button className="btn-batch" onClick={() => handleBatchSet(kid.id)}>
-                  {kid.name} 전체 배정
-                </button>
-              </div>
+          {/* 지급 현황 */}
+          <div className="payout-status">
+            {kidStats.settledUntil ? (
+              <span className="paid-until">✅ <b>{formatMD(kidStats.settledUntil)}</b>까지 지급 완료</span>
+            ) : (
+              <span className="paid-until none">아직 지급 내역이 없어요</span>
             )}
+            {kidStats.history && kidStats.history.length > 0 && (
+              <button className="btn-history" onClick={() => setHistoryKid(kid)}>
+                지급 내역 {kidStats.history.length}건 ▸
+              </button>
+            )}
+          </div>
 
-            {/* 도장 테이블 */}
-            <div className="stamp-grid-wrapper">
-              <table className="stamp-table">
-                <thead>
-                  <tr>
-                    <th className="row-num-header">시간</th>
-                    {weekDays.map((d, i) => (
-                      <th key={d} className={d === today ? 'today-col' : ''}>
-                        <div className="day-label">{DAY_LABELS[i]}</div>
-                        <div className="date-label">{d.slice(5)}</div>
-                        {isAdmin ? (
-                          <input
-                            type="number"
-                            min="0"
-                            max={MAX_STAMPS}
-                            className="target-cell-input"
-                            value={targetInputs[`${kid.id}_${d}`] ?? ''}
-                            onChange={e => setTargetInputs(prev => ({
-                              ...prev, [`${kid.id}_${d}`]: e.target.value
-                            }))}
-                            onBlur={() => handleTargetSave(kid.id, d)}
-                            onKeyDown={e => e.key === 'Enter' && handleTargetSave(kid.id, d)}
-                            placeholder="0h"
-                          />
-                        ) : (
-                          <div className="target-display">{targets[`${kid.id}_${d}`] || 0}h</div>
-                        )}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {Array.from({ length: MAX_STAMPS }, (_, si) => (
-                    <tr key={si}>
-                      <td className="row-num">{si + 1}</td>
-                      {weekDays.map(dateStr => {
-                        const key = `${kid.id}_${dateStr}`
-                        const target = targets[key] || 0
-                        const dayStamps = stamps[key] || {}
-                        const filledData = dayStamps[si]
-                        const isFilled = filledData !== undefined
-                        const isCouponUsed = isFilled && filledData.isCouponUsed
-                        const withinTarget = si < target
-                        const isEarnedCoupon = isFilled && !withinTarget
-                        
-                        const cellKey = `${kid.id}_${dateStr}_${si}`
-                        const isProcessing = processing.has(cellKey)
-                        const canClick = (isAdmin || kid.id === userId) && !isProcessing
+          {/* 주간 일괄 배정 (관리자) */}
+          {isAdmin && (
+            <div className="batch-row">
+              <span className="batch-label">📅 주간 일괄:</span>
+              <input
+                type="number"
+                min="0"
+                max={MAX_STAMPS}
+                className="batch-input"
+                value={batchHours[kid.id] ?? ''}
+                onChange={e => setBatchHours(prev => ({ ...prev, [kid.id]: e.target.value }))}
+                onKeyDown={e => e.key === 'Enter' && handleBatchSet(kid.id)}
+                placeholder="시간"
+              />
+              <span className="batch-unit">시간</span>
+              <button className="btn-batch" onClick={() => handleBatchSet(kid.id)}>
+                {kid.name} 전체 배정
+              </button>
+            </div>
+          )}
 
-                        return (
-                          <td
-                            key={dateStr}
-                            className={`stamp-cell ${dateStr === today ? 'today-col' : ''} ${withinTarget ? 'in-range' : 'out-range'}`}
-                            onClick={() => canClick && handleStampClick(kid.id, dateStr, si)}
-                            style={{ opacity: isProcessing ? 0.6 : 1 }}
-                          >
-                            {isFilled ? (
-                              <span className={`stamp ${isEarnedCoupon ? 'stamp-coupon' : 'stamp-filled'}`}>
-                                {isEarnedCoupon ? '⭐' : (isCouponUsed ? '🎫' : '🔴')}
-                              </span>
-                            ) : withinTarget ? (
-                              <span className="stamp stamp-empty">⭕</span>
-                            ) : (
-                              <span className="stamp-dot" />
-                            )}
-                          </td>
-                        )
-                      })}
-                    </tr>
+          {/* 도장 테이블 */}
+          <div className="stamp-grid-wrapper">
+            <table className="stamp-table">
+              <thead>
+                <tr>
+                  <th className="row-num-header">시간</th>
+                  {weekDays.map((d, i) => (
+                    <th key={d} className={d === today ? 'today-col' : ''}>
+                      <div className="day-label">{DAY_LABELS[i]}</div>
+                      <div className="date-label">{d.slice(5)}</div>
+                      {isAdmin ? (
+                        <input
+                          type="number"
+                          min="0"
+                          max={MAX_STAMPS}
+                          className="target-cell-input"
+                          value={targetInputs[`${kid.id}_${d}`] ?? ''}
+                          onChange={e => setTargetInputs(prev => ({
+                            ...prev, [`${kid.id}_${d}`]: e.target.value
+                          }))}
+                          onBlur={() => handleTargetSave(kid.id, d)}
+                          onKeyDown={e => e.key === 'Enter' && handleTargetSave(kid.id, d)}
+                          placeholder="0h"
+                        />
+                      ) : (
+                        <div className="target-display">{targets[`${kid.id}_${d}`] || 0}h</div>
+                      )}
+                    </th>
                   ))}
-                </tbody>
-                <tfoot>
-                  <tr className="week-summary-row">
-                    <td></td>
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from({ length: MAX_STAMPS }, (_, si) => (
+                  <tr key={si}>
+                    <td className="row-num">{si + 1}</td>
                     {weekDays.map(dateStr => {
                       const key = `${kid.id}_${dateStr}`
                       const target = targets[key] || 0
                       const dayStamps = stamps[key] || {}
-                      const moneyCount = Object.keys(dayStamps).filter(i => parseInt(i) < target).length
-                      const earnedCoupons = Object.keys(dayStamps).filter(i => parseInt(i) >= target).length
+                      const filledData = dayStamps[si]
+                      const isFilled = filledData !== undefined
+                      const isCouponUsed = isFilled && filledData.isCouponUsed
+                      const withinTarget = si < target
+                      const isEarnedCoupon = isFilled && !withinTarget
+
+                      const cellKey = `${kid.id}_${dateStr}_${si}`
+                      const isProcessing = processing.has(cellKey)
+                      const canClick = canEditKid && !isProcessing
+
                       return (
-                        <td key={dateStr} className={`day-summary ${dateStr === today ? 'today-summary' : ''}`}>
-                          <div className="summary-count">{moneyCount}/{target}h</div>
-                          <div className="summary-money">{(moneyCount * RATE).toLocaleString()}원</div>
-                          {earnedCoupons > 0 && <div className="summary-coupon">⭐+{earnedCoupons}</div>}
+                        <td
+                          key={dateStr}
+                          className={`stamp-cell ${dateStr === today ? 'today-col' : ''} ${withinTarget ? 'in-range' : 'out-range'}`}
+                          onClick={() => canClick && handleStampClick(kid.id, dateStr, si)}
+                          style={{ opacity: isProcessing ? 0.6 : 1, cursor: canClick ? 'pointer' : 'default' }}
+                        >
+                          {isFilled ? (
+                            <span className={`stamp ${isEarnedCoupon ? 'stamp-coupon' : 'stamp-filled'}`}>
+                              {isEarnedCoupon ? '⭐' : (isCouponUsed ? '🎫' : '🔴')}
+                            </span>
+                          ) : withinTarget ? (
+                            <span className="stamp stamp-empty">⭕</span>
+                          ) : (
+                            <span className="stamp-dot" />
+                          )}
                         </td>
                       )
                     })}
                   </tr>
-                </tfoot>
-              </table>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="week-summary-row">
+                  <td></td>
+                  {weekDays.map(dateStr => {
+                    const key = `${kid.id}_${dateStr}`
+                    const target = targets[key] || 0
+                    const dayStamps = stamps[key] || {}
+                    const moneyCount = Object.keys(dayStamps).filter(i => parseInt(i) < target).length
+                    const earnedCoupons = Object.keys(dayStamps).filter(i => parseInt(i) >= target).length
+                    const isPaid = kidStats.settledUntil && dateStr <= kidStats.settledUntil
+                    return (
+                      <td key={dateStr} className={`day-summary ${dateStr === today ? 'today-summary' : ''}`}>
+                        <div className="summary-count">{moneyCount}/{target}h</div>
+                        <div className="summary-money">{(moneyCount * RATE).toLocaleString()}원</div>
+                        {earnedCoupons > 0 && <div className="summary-coupon">⭐+{earnedCoupons}</div>}
+                        {isPaid && <div className="summary-paid">지급완료</div>}
+                      </td>
+                    )
+                  })}
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* 지급 내역 모달 */}
+      {historyKid && (
+        <div className="modal-overlay" onClick={() => setHistoryKid(null)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}>
+            <h2>{historyKid.icon} {historyKid.name} 지급 내역</h2>
+            <div className="history-list">
+              <div className="history-row history-head">
+                <span className="history-date">지급일</span>
+                <span className="history-until">정산 기준</span>
+                <span className="history-amount">금액</span>
+                <span className="history-coupon">쿠폰</span>
+              </div>
+              {(stats[historyKid.id]?.history || []).map(h => (
+                <div key={h.id} className="history-row">
+                  <span className="history-date">{formatStamp(h.created_at)}</span>
+                  <span className="history-until">
+                    {h.settled_until ? `${formatMD(h.settled_until)}까지` : '-'}
+                  </span>
+                  <span className="history-amount">{(-h.amount).toLocaleString()}원</span>
+                  <span className="history-coupon">{h.coupon_amount > 0 ? `🎟${h.coupon_amount}` : '-'}</span>
+                </div>
+              ))}
+            </div>
+            <div className="modal-btns">
+              <button className="btn-ghost" onClick={() => setHistoryKid(null)}>닫기</button>
             </div>
           </div>
-        )
-      })}
+        </div>
+      )}
     </div>
   )
 }

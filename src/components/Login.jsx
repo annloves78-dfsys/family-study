@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { getProfile, checkPassword, setPassword } from '../db'
+import { login, changePassword } from '../api'
 
 const USERS = [
   { id: 'yoonseo', name: '윤서', icon: '👧' },
@@ -30,31 +30,24 @@ export default function Login({ onLogin }) {
     setLoading(true)
     setError('')
     try {
-      const ok = await checkPassword(selected.id, pw)
-      if (ok) {
-        onLogin(selected.id)
-      } else {
-        setError('비밀번호가 틀렸습니다.')
-      }
+      const res = await login(selected.id, pw)
+      onLogin(res.userId, res.token)
     } catch (e) {
-      console.error('로그인 오류:', e)
-      setError('오류: ' + (e?.message || e?.code || JSON.stringify(e)))
+      setError(e?.message || '로그인에 실패했습니다.')
     }
     setLoading(false)
   }
 
   const handleChangePassword = async () => {
-    setLoading(true)
     setError('')
+    if (!newPw) { setError('새 비밀번호를 입력해주세요.'); return }
+    if (newPw !== confirmPw) { setError('새 비밀번호가 일치하지 않습니다.'); return }
+    setLoading(true)
     try {
-      const ok = await checkPassword(selected.id, pw)
-      if (!ok) { setError('현재 비밀번호가 틀렸습니다.'); setLoading(false); return }
-      if (!newPw) { setError('새 비밀번호를 입력해주세요.'); setLoading(false); return }
-      if (newPw !== confirmPw) { setError('새 비밀번호가 일치하지 않습니다.'); setLoading(false); return }
-      await setPassword(selected.id, newPw)
-      onLogin(selected.id)
+      const res = await changePassword(selected.id, pw, newPw)
+      onLogin(res.userId, res.token)
     } catch (e) {
-      setError('서버 오류가 발생했습니다.')
+      setError(e?.message || '비밀번호 변경에 실패했습니다.')
     }
     setLoading(false)
   }
@@ -74,6 +67,8 @@ export default function Login({ onLogin }) {
           </button>
         ))}
       </div>
+
+      <p className="login-note">한 번 로그인하면 다음부터는 바로 들어와요</p>
 
       {selected && (
         <div className="modal-overlay" onClick={() => setSelected(null)}>

@@ -50,6 +50,7 @@ CREATE TABLE custom_events (
     event_type TEXT NOT NULL,
     amount INTEGER NOT NULL DEFAULT 0,
     coupon_amount INTEGER NOT NULL DEFAULT 0,
+    settled_until TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
