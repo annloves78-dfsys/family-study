@@ -748,35 +748,6 @@ body {
 }
 .today-link.ghost { color: #8a90a6; border-color: #e7e9f2; }
 
-/* 어제 / 오늘 */
-.today-daypick {
-  display: flex;
-  gap: 0.4rem;
-  background: #e9edff;
-  padding: 0.25rem;
-  border-radius: 12px;
-  margin-bottom: 0.75rem;
-}
-
-.daypick-btn {
-  padding: 0.45rem 1.4rem;
-  border: none;
-  border-radius: 10px;
-  background: transparent;
-  color: #6b73a0;
-  font-family: inherit;
-  font-size: 0.95rem;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.daypick-btn.active {
-  background: #fff;
-  color: #4d5bd8;
-  box-shadow: 0 1px 4px rgba(102,126,234,0.25);
-}
-
-.today-date { color: #8a90a6; font-size: 0.9rem; margin-bottom: 0.5rem; }
 
 .today-progress {
   display: flex;
@@ -1015,4 +986,142 @@ body {
   line-height: 1.5;
   text-align: left;
   margin-bottom: 0.5rem;
+}
+
+/* ===== 날짜 이동 ===== */
+.today-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  margin-bottom: 0.5rem;
+}
+
+.nav-arrow {
+  width: 44px;
+  height: 44px;
+  border: 1px solid #d9e0ff;
+  border-radius: 12px;
+  background: #fff;
+  color: #4d5bd8;
+  font-size: 1rem;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.nav-arrow:disabled { opacity: 0.3; cursor: default; }
+.nav-arrow:active:not(:disabled) { background: #eef1ff; }
+
+.nav-date { min-width: 160px; text-align: center; }
+.nav-date-main { font-size: 1.05rem; font-weight: 800; }
+.nav-date-sub { font-size: 0.75rem; color: #8a90a6; }
+
+.nav-today {
+  margin-bottom: 0.75rem;
+  padding: 0.4rem 1rem;
+  border: 1px solid #d9e0ff;
+  border-radius: 999px;
+  background: #f5f7ff;
+  color: #4d5bd8;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.today-readonly {
+  width: 100%;
+  padding: 0.6rem;
+  margin-bottom: 0.75rem;
+  text-align: center;
+  background: #f5f7ff;
+  border: 1px solid #e0e6ff;
+  border-radius: 10px;
+  color: #6b73a0;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.today-stamp.locked { cursor: default; opacity: 0.85; }
+.today-stamp.locked:active { transform: none; }
+
+.today-empty {
+  width: 100%;
+  padding: 1.5rem 1rem;
+  margin-bottom: 1rem;
+  text-align: center;
+  color: #b9c0d8;
+  font-size: 0.9rem;
+  border: 2px dashed #e7e9f2;
+  border-radius: 14px;
+}
+
+/* ===== 지난 기록 띠 ===== */
+.strip-section {
+  width: 100%;
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e7e9f2;
+}
+
+.strip-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 0.6rem;
+}
+
+.strip-title { font-size: 0.85rem; font-weight: 800; color: #4d5bd8; }
+.strip-total { font-size: 0.8rem; color: #8a90a6; }
+
+.strip-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.35rem;
+}
+
+.strip-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 0.4rem 0.1rem;
+  border: 1px solid #e7e9f2;
+  border-radius: 10px;
+  background: #fff;
+  font-family: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.strip-dow { font-size: 0.6rem; color: #b0b6cc; }
+.strip-num { font-size: 0.85rem; font-weight: 800; color: #5a6280; }
+.strip-mark { font-size: 0.7rem; min-height: 1em; color: #8a90a6; font-weight: 700; }
+
+.strip-day.full { background: #fff0f0; border-color: #ffc9cb; }
+.strip-day.part { background: #fffaf0; border-color: #ffe0b0; }
+.strip-day.zero { background: #fafbff; }
+.strip-day.none { background: #fff; opacity: 0.55; }
+
+.strip-day.sel {
+  border-color: #667eea;
+  border-width: 2px;
+  box-shadow: 0 0 0 2px rgba(102,126,234,0.15);
+}
+
+.strip-day.is-today .strip-num { color: #4d5bd8; text-decoration: underline; }
+
+.strip-more {
+  width: 100%;
+  margin-top: 0.6rem;
+  padding: 0.55rem;
+  border: 1px solid #e7e9f2;
+  border-radius: 10px;
+  background: #fafbff;
+  color: #6b73a0;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
 }

@@ -3,6 +3,7 @@ import { fetchBoard, addStamp, removeStamp } from '../api'
 
 const RATE = 500
 const MAX_STAMPS = 15
+const WINDOW = 14   // 아래 '지난 기록' 띠에 보여줄 날짜 수
 
 const KIDS = [
   { id: 'yoonseo', name: '윤서', icon: '👧' },
@@ -19,14 +20,19 @@ function toLocalDate(date) {
   return `${y}-${m}-${d}`
 }
 
+function addDays(dateStr, n) {
+  const d = new Date(dateStr + 'T00:00:00')
+  d.setDate(d.getDate() + n)
+  return toLocalDate(d)
+}
+
 export default function TodayBoard({ userId, kidId = userId, onLogout, onWeek, isPreview = false }) {
-  const todayObj = new Date()
-  const yesterdayObj = new Date(todayObj)
-  yesterdayObj.setDate(todayObj.getDate() - 1)
-  const today = toLocalDate(todayObj)
-  const yesterday = toLocalDate(yesterdayObj)
+  const today = toLocalDate(new Date())
+  const yesterday = addDays(today, -1)
 
   const [dateStr, setDateStr] = useState(today)
+  // 아래 띠에 보여줄 14일 구간의 마지막 날 (과거로 넘어가면 같이 따라갑니다)
+  const [windowEnd, setWindowEnd] = useState(today)
   const [stamps, setStamps] = useState({})   // { dateStr: { index: {isCouponUsed} } }
   const [targets, setTargets] = useState({}) // { dateStr: count }
   const [stat, setStat] = useState(null)
@@ -37,10 +43,15 @@ export default function TodayBoard({ userId, kidId = userId, onLogout, onWeek, i
 
   const kid = KIDS.find(k => k.id === kidId) || { name: '나', icon: '🙂' }
 
+  const days = Array.from({ length: WINDOW }, (_, i) => addDays(windowEnd, i - (WINDOW - 1)))
+  const daysKey = days.join(',')
+
   const loadData = useCallback(async (isInitial = false) => {
     if (isInitial) setLoading(true)
     try {
-      const data = await fetchBoard([yesterday, today])
+      // 보고 있는 날짜가 구간 밖이어도 같이 불러옵니다
+      const wanted = Array.from(new Set([...daysKey.split(','), dateStr, today, yesterday]))
+      const data = await fetchBoard(wanted)
 
       const sm = {}
       ;(data.weekStamps || []).forEach(s => {
@@ -63,7 +74,7 @@ export default function TodayBoard({ userId, kidId = userId, onLogout, onWeek, i
       setError(e?.message || '불러오지 못했어요')
     }
     if (isInitial) setLoading(false)
-  }, [kidId, today, yesterday])
+  }, [kidId, daysKey, dateStr, today, yesterday])
 
   useEffect(() => { loadData(true) }, [loadData])
 
@@ -73,11 +84,32 @@ export default function TodayBoard({ userId, kidId = userId, onLogout, onWeek, i
   const doneInTarget = Object.keys(dayStamps).filter(i => Number(i) < target).length
   const extra = Object.keys(dayStamps).filter(i => Number(i) >= target).length
 
-  // 보여줄 동그라미 개수: 목표만큼 + 이미 찍은 초과분 + 다음 한 칸
-  const slots = Math.min(MAX_STAMPS, Math.max(target, filled + 1))
+  // 아이는 오늘·어제만 고칠 수 있습니다 (관리자 미리보기는 아무 날짜나)
+  const canEdit = isPreview || dateStr === today || dateStr === yesterday
+  const isToday = dateStr === today
+
+  const slots = canEdit
+    ? Math.min(MAX_STAMPS, Math.max(target, filled + 1))
+    : Math.max(target, filled)
+
+  const goToDate = (next) => {
+    if (next > today) return
+    setDateStr(next)
+    setError('')
+    if (next > windowEnd) {
+      setWindowEnd(next)
+    } else if (next < days[0]) {
+      const end = addDays(next, WINDOW - 1)
+      setWindowEnd(end > today ? today : end)
+    }
+  }
 
   const handleTap = async (index) => {
     if (busy) return
+    if (!canEdit) {
+      setError('지난 날은 보기만 할 수 있어요')
+      return
+    }
     const has = dayStamps[index] !== undefined
     const maxIndex = filled > 0 ? Math.max(...Object.keys(dayStamps).map(Number)) : -1
 
@@ -125,8 +157,18 @@ export default function TodayBoard({ userId, kidId = userId, onLogout, onWeek, i
   if (loading) return <div className="app-splash">불러오는 중...</div>
 
   const dayLabel = DAY_LABELS[new Date(dateStr + 'T00:00:00').getDay()]
-  const dayWord = dateStr === today ? '오늘' : '어제'
   const [, mm, dd] = dateStr.split('-')
+  const dayWord = isToday ? '오늘' : (dateStr === yesterday ? '어제' : '이날')
+
+  // 지난 기록 띠
+  const stripDays = days.map(d => {
+    const st = stamps[d] || {}
+    const tg = targets[d] || 0
+    const inTarget = Object.keys(st).filter(i => Number(i) < tg).length
+    return { date: d, target: tg, done: inTarget, ratio: tg > 0 ? inTarget / tg : 0 }
+  })
+  const windowHours = stripDays.reduce((sum, d) => sum + d.done, 0)
+  const windowMoney = windowHours * RATE
 
   return (
     <div className="today-page">
@@ -148,21 +190,30 @@ export default function TodayBoard({ userId, kidId = userId, onLogout, onWeek, i
         </div>
       )}
 
-      {/* 어제 / 오늘 */}
-      <div className="today-daypick">
+      {/* 날짜 이동 */}
+      <div className="today-nav">
+        <button className="nav-arrow" onClick={() => goToDate(addDays(dateStr, -1))} aria-label="전날">◀</button>
+        <div className="nav-date">
+          <div className="nav-date-main">{parseInt(mm)}월 {parseInt(dd)}일 {dayLabel}</div>
+          {(isToday || dateStr === yesterday) && (
+            <div className="nav-date-sub">{isToday ? '오늘' : '어제'}</div>
+          )}
+        </div>
         <button
-          className={`daypick-btn ${dateStr === yesterday ? 'active' : ''}`}
-          onClick={() => { setDateStr(yesterday); setError('') }}
-        >어제</button>
-        <button
-          className={`daypick-btn ${dateStr === today ? 'active' : ''}`}
-          onClick={() => { setDateStr(today); setError('') }}
-        >오늘</button>
+          className="nav-arrow"
+          onClick={() => goToDate(addDays(dateStr, 1))}
+          disabled={isToday}
+          aria-label="다음날"
+        >▶</button>
       </div>
 
-      <div className="today-date">{parseInt(mm)}월 {parseInt(dd)}일 {dayLabel}요일</div>
+      {!isToday && (
+        <button className="nav-today" onClick={() => { setDateStr(today); setWindowEnd(today); setError('') }}>
+          오늘로 돌아가기
+        </button>
+      )}
 
-      {/* 오늘 진행 */}
+      {/* 진행 */}
       <div className="today-progress">
         <span className="today-count">{doneInTarget}</span>
         <span className="today-of">/ {target}시간</span>
@@ -180,28 +231,36 @@ export default function TodayBoard({ userId, kidId = userId, onLogout, onWeek, i
 
       {error && <div className="today-error">{error}</div>}
 
+      {!canEdit && (
+        <div className="today-readonly">👀 지난 기록이에요 — 보기만 할 수 있어요</div>
+      )}
+
       {/* 도장 동그라미 */}
-      <div className="today-stamps">
-        {Array.from({ length: slots }, (_, i) => {
-          const data = dayStamps[i]
-          const isFilled = data !== undefined
-          const isExtra = i >= target
-          const cls = isFilled
-            ? (isExtra ? 'filled extra' : (data.isCouponUsed ? 'filled coupon' : 'filled'))
-            : (isExtra ? 'empty extra' : 'empty')
-          return (
-            <button
-              key={i}
-              className={`today-stamp ${cls}`}
-              onClick={() => handleTap(i)}
-              disabled={busy}
-              aria-label={`${i + 1}번째 도장`}
-            >
-              {isFilled ? (isExtra ? '⭐' : (data.isCouponUsed ? '🎫' : '🔴')) : i + 1}
-            </button>
-          )
-        })}
-      </div>
+      {slots > 0 ? (
+        <div className="today-stamps">
+          {Array.from({ length: slots }, (_, i) => {
+            const data = dayStamps[i]
+            const isFilled = data !== undefined
+            const isExtra = i >= target
+            const cls = isFilled
+              ? (isExtra ? 'filled extra' : (data.isCouponUsed ? 'filled coupon' : 'filled'))
+              : (isExtra ? 'empty extra' : 'empty')
+            return (
+              <button
+                key={i}
+                className={`today-stamp ${cls}${canEdit ? '' : ' locked'}`}
+                onClick={() => handleTap(i)}
+                disabled={busy}
+                aria-label={`${i + 1}번째 도장`}
+              >
+                {isFilled ? (isExtra ? '⭐' : (data.isCouponUsed ? '🎫' : '🔴')) : i + 1}
+              </button>
+            )
+          })}
+        </div>
+      ) : (
+        <div className="today-empty">이날은 목표가 없었어요</div>
+      )}
 
       {target > 0 && doneInTarget >= target && (
         <div className="today-done">{dayWord} 목표 다 했어요! 🎉</div>
@@ -219,21 +278,61 @@ export default function TodayBoard({ userId, kidId = userId, onLogout, onWeek, i
         </div>
       </div>
 
-      <button
-        className={`today-coupon ${couponMode ? 'active' : ''}`}
-        onClick={() => {
-          if ((stat?.usableCoupons || 0) <= 0) { setError('쓸 수 있는 쿠폰이 없어요'); return }
-          setCouponMode(v => !v)
-          setError('')
-        }}
-      >
-        {couponMode
-          ? '🎫 쿠폰 모드 — 다음 도장은 쿠폰으로!'
-          : `🎟 쿠폰 ${stat?.usableCoupons || 0}장 (대기 ${stat?.waitCoupons || 0})`}
-      </button>
+      {canEdit && (
+        <button
+          className={`today-coupon ${couponMode ? 'active' : ''}`}
+          onClick={() => {
+            if ((stat?.usableCoupons || 0) <= 0) { setError('쓸 수 있는 쿠폰이 없어요'); return }
+            setCouponMode(v => !v)
+            setError('')
+          }}
+        >
+          {couponMode
+            ? '🎫 쿠폰 모드 — 다음 도장은 쿠폰으로!'
+            : `🎟 쿠폰 ${stat?.usableCoupons || 0}장 (대기 ${stat?.waitCoupons || 0})`}
+        </button>
+      )}
+
+      {/* 지난 기록 */}
+      <div className="strip-section">
+        <div className="strip-head">
+          <span className="strip-title">
+            {days[0].slice(5).replace('-', '/')} ~ {days[days.length - 1].slice(5).replace('-', '/')}
+          </span>
+          <span className="strip-total">{windowHours}시간 · {windowMoney.toLocaleString()}원</span>
+        </div>
+
+        <div className="strip-grid">
+          {stripDays.map(d => {
+            const label = DAY_LABELS[new Date(d.date + 'T00:00:00').getDay()]
+            const level =
+              d.target === 0 ? 'none' : d.ratio >= 1 ? 'full' : d.ratio > 0 ? 'part' : 'zero'
+            return (
+              <button
+                key={d.date}
+                className={`strip-day ${level}${d.date === dateStr ? ' sel' : ''}${d.date === today ? ' is-today' : ''}`}
+                onClick={() => goToDate(d.date)}
+                title={`${d.date} — ${d.done}/${d.target}시간`}
+              >
+                <span className="strip-dow">{label}</span>
+                <span className="strip-num">{parseInt(d.date.split('-')[2])}</span>
+                <span className="strip-mark">
+                  {d.target === 0 ? '·' : d.ratio >= 1 ? '🔴' : d.done > 0 ? d.done : ''}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+
+        <button className="strip-more" onClick={() => goToDate(addDays(days[0], -1))}>
+          ◀ 더 이전 보기
+        </button>
+      </div>
 
       {stat?.settledUntil && (
-        <div className="today-paid">✅ {parseInt(stat.settledUntil.split('-')[1])}/{parseInt(stat.settledUntil.split('-')[2])}까지 받았어요</div>
+        <div className="today-paid">
+          ✅ {parseInt(stat.settledUntil.split('-')[1])}/{parseInt(stat.settledUntil.split('-')[2])}까지 받았어요
+        </div>
       )}
     </div>
   )

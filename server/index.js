@@ -210,6 +210,18 @@ async function dayMessage(userId, dateStr) {
   return msg
 }
 
+// 아이는 오늘·어제만 고칠 수 있습니다 (관리자는 아무 날짜나)
+function assertEditableDate(user, dateStr) {
+  if (user.role === 'admin') return
+  const today = todayKST()
+  const d = new Date(today + 'T00:00:00Z')
+  d.setUTCDate(d.getUTCDate() - 1)
+  const yesterday = d.toISOString().slice(0, 10)
+  if (dateStr !== today && dateStr !== yesterday) {
+    throw new ApiError(403, '오늘과 어제 도장만 바꿀 수 있어요.')
+  }
+}
+
 // ---------- 액션 ----------
 const actions = {
   async health() {
@@ -326,9 +338,10 @@ const actions = {
   //  홈 화면 위젯이 통째로 보내기 쉽도록, 몸통은 {token, userId} 만 있으면 됩니다.
   async stamp_next(b) {
     const targetId = typeof b.userId === 'string' ? b.userId : ''
-    await requireCanEdit(b, targetId)
+    const u = await requireCanEdit(b, targetId)
 
     const dateStr = isDate(b.dateStr) ? b.dateStr : todayKST()
+    assertEditableDate(u, dateStr)
 
     // 다음 번호를 찾아 넣는 것을 한 번에 (동시에 두 번 눌러도 꼬이지 않게)
     const { rows } = await pool.query(
@@ -349,9 +362,10 @@ const actions = {
   // ---- 위젯용: 오늘 마지막 도장 하나 취소 ----
   async stamp_undo(b) {
     const targetId = typeof b.userId === 'string' ? b.userId : ''
-    await requireCanEdit(b, targetId)
+    const u = await requireCanEdit(b, targetId)
 
     const dateStr = isDate(b.dateStr) ? b.dateStr : todayKST()
+    assertEditableDate(u, dateStr)
 
     const { rows } = await pool.query(
       `DELETE FROM study_stamps
@@ -374,7 +388,8 @@ const actions = {
     if (!isDate(b.dateStr) || stampIndex === null || stampIndex < 0 || stampIndex > 100) {
       throw new ApiError(400, '입력값이 올바르지 않습니다.')
     }
-    await requireCanEdit(b, targetId)
+    const u1 = await requireCanEdit(b, targetId)
+    assertEditableDate(u1, b.dateStr)
 
     await pool.query(
       `INSERT INTO study_stamps (user_id, date_str, stamp_index, is_coupon_used)
@@ -391,7 +406,8 @@ const actions = {
     if (!isDate(b.dateStr) || stampIndex === null) {
       throw new ApiError(400, '입력값이 올바르지 않습니다.')
     }
-    await requireCanEdit(b, targetId)
+    const u2 = await requireCanEdit(b, targetId)
+    assertEditableDate(u2, b.dateStr)
 
     await pool.query(
       'DELETE FROM study_stamps WHERE user_id = $1 AND date_str = $2 AND stamp_index = $3',
