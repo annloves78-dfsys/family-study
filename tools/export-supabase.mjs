@@ -1,7 +1,7 @@
 // =========================================================
-// Supabase 데이터를 가비아 MySQL 용 INSERT 문으로 뽑아냅니다.
-//   node tools/export-supabase.mjs
-// 결과: migration/gabia_data.sql
+// Supabase 데이터를 가비아 서버(PostgreSQL) 용 INSERT 문으로 뽑아냅니다.
+//   npm run export:supabase
+// 결과: deploy/sql/02_data.sql
 // =========================================================
 import { writeFileSync, mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
@@ -30,38 +30,25 @@ async function fetchAll(table) {
   return rows
 }
 
+// PostgreSQL 문자열 리터럴 (standard_conforming_strings 기준: 홑따옴표만 두 번)
 function sqlValue(v) {
   if (v === null || v === undefined) return 'NULL'
-  if (typeof v === 'boolean') return v ? '1' : '0'
+  if (typeof v === 'boolean') return v ? 'true' : 'false'
   if (typeof v === 'number') return String(v)
-  const s = String(v)
-    .replace(/\\/g, '\\\\')
-    .replace(/'/g, "\\'")
-    .replace(/\n/g, '\\n')
-    .replace(/\r/g, '\\r')
-    .replace(/\0/g, '')
-  return `'${s}'`
-}
-
-// Postgres timestamptz -> MySQL DATETIME (한국 시간)
-function toMysqlDatetime(ts) {
-  if (!ts) return null
-  const d = new Date(ts)
-  if (isNaN(d.getTime())) return null
-  const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000)
-  return kst.toISOString().slice(0, 19).replace('T', ' ')
+  return `'${String(v).replace(/'/g, "''")}'`
 }
 
 function buildInserts(table, columns, rows) {
   if (rows.length === 0) return `-- ${table}: 데이터 없음\n`
-  const lines = rows.map(
-    r => '  (' + columns.map(c => sqlValue(r[c])).join(', ') + ')'
-  )
+  const lines = rows.map(r => '  (' + columns.map(c => sqlValue(r[c])).join(', ') + ')')
   return (
-    `INSERT INTO ${table} (${columns.join(', ')}) VALUES\n` +
-    lines.join(',\n') +
-    ';\n'
+    `INSERT INTO ${table} (${columns.join(', ')}) VALUES\n` + lines.join(',\n') + ';\n'
   )
+}
+
+// id 를 직접 넣었으므로 시퀀스를 최대값 다음으로 맞춰 줍니다
+function resetSequence(table) {
+  return `SELECT setval(pg_get_serial_sequence('${table}', 'id'), COALESCE((SELECT MAX(id) FROM ${table}), 1));`
 }
 
 const main = async () => {
@@ -74,27 +61,27 @@ const main = async () => {
     `profiles ${profiles.length} / daily_targets ${targets.length} / study_stamps ${stamps.length} / custom_events ${events.length}`
   )
 
-  const eventRows = events.map(e => ({
-    ...e,
-    settled_until: e.settled_until ?? null,
-    created_at: toMysqlDatetime(e.created_at),
-  }))
+  const eventRows = events.map(e => ({ ...e, settled_until: e.settled_until ?? null }))
 
   const out = [
     '-- =========================================================',
-    '-- Supabase -> 가비아 MySQL 데이터 이전',
-    '-- gabia_schema.sql 을 먼저 실행한 뒤 이 파일을 실행하세요.',
-    `-- 생성 시각 기준 행 수: profiles ${profiles.length}, daily_targets ${targets.length}, study_stamps ${stamps.length}, custom_events ${events.length}`,
+    '-- Supabase -> 가비아 서버(PostgreSQL) 데이터 이전',
+    '-- 01_schema.sql 을 먼저 실행한 뒤 이 파일을 실행하세요.',
+    '--   sudo -u postgres psql -d stamp -f 02_data.sql',
+    `-- 행 수: profiles ${profiles.length}, daily_targets ${targets.length}, study_stamps ${stamps.length}, custom_events ${events.length}`,
     '-- =========================================================',
     '',
-    'SET NAMES utf8mb4;',
-    'SET FOREIGN_KEY_CHECKS = 0;',
+    '-- 실수로 다른 DB 에 실행하는 것을 막습니다',
+    'DO $$',
+    'BEGIN',
+    "  IF current_database() <> 'stamp' THEN",
+    "    RAISE EXCEPTION '이 스크립트는 stamp 데이터베이스에서만 실행할 수 있습니다 (현재: %)', current_database();",
+    '  END IF;',
+    'END $$;',
     '',
-    '-- 스키마 생성 시 들어간 기본 계정을 지우고 실제 데이터로 교체합니다',
-    'DELETE FROM custom_events;',
-    'DELETE FROM study_stamps;',
-    'DELETE FROM daily_targets;',
-    'DELETE FROM profiles;',
+    'BEGIN;',
+    '',
+    'TRUNCATE custom_events, study_stamps, daily_targets, sessions, profiles RESTART IDENTITY CASCADE;',
     '',
     buildInserts('profiles', ['id', 'name', 'password', 'is_password_set', 'role'], profiles),
     '',
@@ -108,13 +95,18 @@ const main = async () => {
       eventRows
     ),
     '',
-    'SET FOREIGN_KEY_CHECKS = 1;',
+    '-- 시퀀스 재정렬',
+    resetSequence('daily_targets'),
+    resetSequence('study_stamps'),
+    resetSequence('custom_events'),
+    '',
+    'COMMIT;',
     '',
   ].join('\n')
 
   const target = resolve(
     dirname(fileURLToPath(import.meta.url)),
-    '../migration/gabia_data.sql'
+    '../deploy/sql/02_data.sql'
   )
   mkdirSync(dirname(target), { recursive: true })
   writeFileSync(target, out, 'utf8')

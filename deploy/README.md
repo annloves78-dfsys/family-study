@@ -1,0 +1,151 @@
+# 가비아 서버 이전 안내 (도장판)
+
+Supabase → **가비아 서버(1.201.117.244)** 로 옮기는 절차입니다.
+**사람이 직접 해야 하는 일**만 여기 적혀 있습니다.
+
+---
+
+## 1. 학원앱과 어떻게 나뉘어 있나
+
+같은 서버에 이미 두 개가 돌고 있습니다. 도장판은 **세 번째 칸**을 새로 만들어 들어갑니다.
+기존 두 개의 설정 파일은 **하나도 건드리지 않습니다.**
+
+| | 학원앱 (annest) | 아들 게임앱 (mift) | **도장판 (stamp)** |
+|---|---|---|---|
+| 리눅스 계정 | `annest` | `ubuntu` | **`stamp`** |
+| 파일 위치 | `/home/annest` | `/home/ubuntu/miftgotothetop` | **`/home/stamp`** |
+| 프로세스 | systemd `annest-api`, `annest-postgrest` | pm2 | **systemd `stamp-api`** |
+| 포트 | 3001, 3002 | (pm2) | **3010** |
+| nginx | `sites-available/annest` | `.../mift` | **`.../stamp`** |
+| 데이터베이스 | PostgreSQL `annest` DB | 별도 Supabase | **PostgreSQL `stamp` DB** |
+| 도메인 | `anne.ai.kr` | `mift.anne.ai.kr` | **`stamp.anne.ai.kr`** |
+
+- `stamp` 롤은 `annest` DB 에 **접속 권한이 없습니다** (`01_setup_server.sh` 가 REVOKE 합니다).
+- `stamp` 계정은 로그인이 안 되는 계정이고, 다른 사람 폴더를 읽을 권한이 없습니다.
+- DB 는 `127.0.0.1` 만 듣습니다. 인터넷에서 직접 접속할 수 없습니다.
+- API 는 `127.0.0.1:3010` 만 듣습니다. 바깥에서는 nginx 를 통해서만 닿습니다.
+
+> **램**: 서버가 1코어 / 960MB 라 여유가 많지 않습니다.
+> `stamp-api` 는 systemd 에서 **최대 200MB** 로 묶어 뒀습니다 (`MemoryMax=200M`).
+> 실제로는 60~90MB 쯤 씁니다. 학원앱을 밀어내지 않습니다.
+
+---
+
+## 2. 순서
+
+### ① 서버 초기 설정 (한 번만)
+
+`deploy/` 폴더를 서버에 올린 뒤:
+
+```bash
+sudo bash deploy/scripts/01_setup_server.sh
+```
+
+계정 `stamp`, DB `stamp`, `/etc/stamp/stamp-api.env`, 폴더가 만들어집니다.
+
+### ② 자료 옮기기 (한 번만)
+
+```bash
+sudo -u postgres psql -d stamp -f deploy/sql/01_schema.sql
+sudo -u postgres psql -d stamp -f deploy/sql/02_data.sql
+sudo -u postgres psql -d stamp -f deploy/sql/03_backfill_settled_until.sql
+```
+
+세 파일 모두 맨 위에서 **"지금 stamp DB 가 맞는지" 확인하고, 아니면 즉시 멈춥니다.**
+실수로 학원앱 DB 에 실행할 수 없습니다.
+
+`02_data.sql` 은 내 PC 에서 만듭니다 (비밀번호가 들어있어 깃에 올라가지 않습니다):
+
+```bash
+npm run export:supabase
+```
+
+> 현재 뽑아둔 양: 도장 712개, 목표 210개, 지급기록 23개, 사용자 4명.
+> 옮기기 **직전에** 다시 뽑으면 그 사이 찍은 도장까지 따라옵니다.
+
+### ③ 코드 올리기
+
+내 PC 에서:
+
+```bash
+npm install
+npm run deploy:build     # upload/ 폴더가 만들어집니다
+scp -r upload deploy 서버주소:~/
+```
+
+서버에서:
+
+```bash
+sudo cp ~/deploy/systemd/stamp-api.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable stamp-api
+sudo bash ~/deploy/scripts/02_deploy.sh ~/upload
+```
+
+`02_deploy.sh` 는 파일 복사 → `npm install` → 서비스 재시작 → **헬스체크**까지 합니다.
+앞으로 코드를 고칠 때도 이 명령 하나만 다시 돌리면 됩니다.
+
+### ④ 도메인 연결 + HTTPS
+
+먼저 가비아 DNS 에서 `stamp.anne.ai.kr` 을 이 서버 IP 로 연결한 뒤:
+
+```bash
+sudo bash ~/deploy/scripts/03_go_live.sh
+```
+
+nginx 설정을 넣고 certbot 으로 인증서까지 받습니다.
+(`anne.ai.kr`, `mift.anne.ai.kr` 설정은 건드리지 않습니다.)
+
+---
+
+## 3. 확인
+
+1. `https://stamp.anne.ai.kr` 접속 → 로그인 화면
+2. 관리자 로그인 → 도장판
+3. **새로고침 → 로그인 화면 없이 바로 들어가지는지** (로그인 유지)
+4. 탭으로 윤서 / 연우 / 연택 전환
+5. 도장 하나 찍었다 지우기
+6. 학원앱(`anne.ai.kr`)이 그대로 잘 도는지도 같이 확인
+
+### 안 될 때
+
+| 증상 | 확인 |
+|---|---|
+| 502 Bad Gateway | `sudo systemctl status stamp-api` / `sudo journalctl -u stamp-api -n 50` |
+| `DATABASE_URL 환경변수가 없습니다` | `/etc/stamp/stamp-api.env` 가 있는지, systemd 유닛의 `EnvironmentFile` 경로 |
+| `⚠ 서버에 연결할 수 없습니다` | nginx 의 `/api/` 프록시가 3010 을 가리키는지 |
+| 로그인은 되는데 화면이 빈 채로 | `sudo journalctl -u stamp-api -f` 켜두고 새로고침 |
+| 서버가 느려짐 | `free -h` 로 램 확인. 학원앱 안내대로 **2GB 증설**을 먼저 하세요 |
+
+---
+
+## 4. 다 되면
+
+- Vercel 프로젝트는 배포를 꺼두세요 (둘 다 살아있으면 자료가 갈립니다)
+- Supabase 프로젝트는 **1~2주 그대로 두었다가** 문제 없으면 삭제하세요 (되돌릴 여지)
+- 예전 Supabase 용 SQL 은 `legacy-supabase/` 에 참고용으로 남아 있습니다
+
+---
+
+## 5. API 구조 (참고)
+
+`POST /api/?action=<액션>`, 본문은 JSON. 로그인하면 받은 토큰을 본문에 같이 보냅니다.
+
+| 액션 | 하는 일 | 권한 |
+|---|---|---|
+| `health` | 서버·DB 살아있는지 | - |
+| `login` | 로그인, 토큰 발급 (60일) | - |
+| `me` | 저장된 토큰 확인 (자동 로그인) | - |
+| `logout` | 토큰 삭제 | - |
+| `change_password` | 비밀번호 변경 (기존 토큰 전부 만료) | 현재 비밀번호 |
+| `board` | 주간 도장 + 목표 + 전체 통계 | 로그인 |
+| `stamp_add` / `stamp_remove` | 도장 찍기 / 지우기 | 본인 또는 관리자 |
+| `target_set` | 목표 시간 설정 | 관리자 |
+| `payout_add` | 용돈 지급 | 관리자 |
+
+Supabase 때와 달라진 점:
+
+- **비밀번호가 브라우저로 내려오지 않습니다.** 서버에서만 대조합니다.
+- 다른 아이의 도장을 바꾸는 요청은 **서버가 거부**합니다 (화면만 막는 게 아닙니다).
+- 전체 통계를 서버에서 계산해 내려줍니다. 예전엔 도장 전체를 브라우저로 내려받아
+  계산했습니다 (도장 하나 찍을 때마다 수천 줄). 지금은 세 줄만 옵니다.

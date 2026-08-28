@@ -1,0 +1,17 @@
+{
+  "name": "stamp-api",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "도장판 API 서버 (가비아 서버 / Node + PostgreSQL)",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "pg": "^8.11.5"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

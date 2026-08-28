@@ -1,0 +1,47 @@
+# =========================================================
+#  도장판 API (Node + PostgreSQL)
+#  설치: sudo cp stamp-api.service /etc/systemd/system/
+#        sudo systemctl daemon-reload && sudo systemctl enable --now stamp-api
+#  로그: sudo journalctl -u stamp-api -f
+# =========================================================
+[Unit]
+Description=Stamp board API (family study tracker)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=stamp
+Group=stamp
+WorkingDirectory=/home/stamp/api
+ExecStart=/usr/bin/node /home/stamp/api/index.js
+Restart=always
+RestartSec=3
+
+Environment=NODE_ENV=production
+Environment=PORT=3010
+Environment=RATE=500
+Environment=SESSION_DAYS=60
+# DB 비밀번호가 들어있는 파일 (chmod 600, stamp 소유)
+EnvironmentFile=/etc/stamp/stamp-api.env
+
+# 램이 넉넉하지 않으므로 상한을 둡니다 (학원앱을 밀어내지 않도록)
+MemoryMax=200M
+MemoryHigh=150M
+
+# 격리
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/stamp
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=stamp-api
+
+[Install]
+WantedBy=multi-user.target

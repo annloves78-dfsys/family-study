@@ -1,0 +1,408 @@
+// =========================================================
+//  도장판 API 서버 (가비아 서버 / Node + PostgreSQL)
+//    POST /api/?action=<액션>   Body: JSON
+//
+//  학원앱(annest)과 완전히 분리되어 있습니다.
+//    - 리눅스 계정: stamp        (annest 폴더 접근 불가)
+//    - 데이터베이스: stamp DB    (annest DB 접근 불가)
+//    - 포트: 3010               (annest 는 3001/3002)
+// =========================================================
+import http from 'node:http'
+import crypto from 'node:crypto'
+import pg from 'pg'
+
+const PORT = Number(process.env.PORT || 3010)
+const RATE = Number(process.env.RATE || 500)
+const SESSION_DAYS = Number(process.env.SESSION_DAYS || 60)
+
+if (!process.env.DATABASE_URL) {
+  console.error('DATABASE_URL 환경변수가 없습니다. systemd 유닛의 Environment 를 확인하세요.')
+  process.exit(1)
+}
+
+const pool = new pg.Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: 4, // 램이 넉넉하지 않으므로 작게
+  idleTimeoutMillis: 30_000,
+})
+
+pool.on('error', err => console.error('[stamp-api] pool error:', err.message))
+
+// ---------- 공통 ----------
+class ApiError extends Error {
+  constructor(status, message) {
+    super(message)
+    this.status = status
+  }
+}
+
+const isDate = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)
+
+function asInt(v) {
+  if (typeof v === 'number' && Number.isInteger(v)) return v
+  if (typeof v === 'string' && /^-?\d+$/.test(v)) return Number(v)
+  return null
+}
+
+// 길이가 달라도 시간이 새지 않도록 해시로 비교
+function samePassword(a, b) {
+  const ha = crypto.createHash('sha256').update(String(a), 'utf8').digest()
+  const hb = crypto.createHash('sha256').update(String(b), 'utf8').digest()
+  return crypto.timingSafeEqual(ha, hb)
+}
+
+// ---------- 세션 ----------
+async function currentUser(token) {
+  if (typeof token !== 'string' || token.length !== 64) return null
+  const { rows } = await pool.query(
+    `SELECT p.id, p.role
+       FROM sessions s
+       JOIN profiles p ON p.id = s.user_id
+      WHERE s.token = $1 AND s.expires_at > NOW()`,
+    [token]
+  )
+  return rows[0] || null
+}
+
+async function requireUser(body) {
+  const u = await currentUser(body.token)
+  if (!u) throw new ApiError(401, '로그인이 필요합니다.')
+  return u
+}
+
+async function requireAdmin(body) {
+  const u = await requireUser(body)
+  if (u.role !== 'admin') throw new ApiError(403, '관리자만 할 수 있습니다.')
+  return u
+}
+
+// 관리자이거나 본인일 때만 수정 가능
+async function requireCanEdit(body, targetId) {
+  const u = await requireUser(body)
+  if (u.role !== 'admin' && u.id !== targetId) {
+    throw new ApiError(403, '다른 사람의 도장은 바꿀 수 없습니다.')
+  }
+  return u
+}
+
+async function createSession(userId) {
+  const token = crypto.randomBytes(32).toString('hex')
+  await pool.query('DELETE FROM sessions WHERE expires_at < NOW()')
+  await pool.query(
+    `INSERT INTO sessions (token, user_id, expires_at)
+     VALUES ($1, $2, NOW() + make_interval(days => $3))`,
+    [token, userId, SESSION_DAYS]
+  )
+  return token
+}
+
+// ---------- 통계 ----------
+async function buildStats() {
+  const [kids, agg, payouts] = await Promise.all([
+    pool.query("SELECT id FROM profiles WHERE role = 'child'"),
+    pool.query(
+      `SELECT s.user_id,
+              COUNT(*) FILTER (WHERE s.stamp_index <  COALESCE(t.target_count, 0)) AS money_stamps,
+              COUNT(*) FILTER (WHERE s.stamp_index <  COALESCE(t.target_count, 0) AND s.is_coupon_used) AS used_coupons,
+              COUNT(*) FILTER (WHERE s.stamp_index >= COALESCE(t.target_count, 0)) AS earned_coupons,
+              MAX(s.date_str) AS last_stamp_date
+         FROM study_stamps s
+         LEFT JOIN daily_targets t
+                ON t.user_id = s.user_id AND t.date_str = s.date_str
+        GROUP BY s.user_id`
+    ),
+    pool.query(
+      `SELECT id, user_id, amount, coupon_amount, settled_until, created_at
+         FROM custom_events
+        WHERE event_type = 'payout'
+        ORDER BY created_at DESC, id DESC`
+    ),
+  ])
+
+  const stats = {}
+  for (const k of kids.rows) {
+    stats[k.id] = {
+      unsettledMoney: 0,
+      usableCoupons: 0,
+      waitCoupons: 0,
+      settledUntil: null,
+      lastStampDate: null,
+      history: [],
+    }
+  }
+
+  const earned = {}
+  const used = {}
+  for (const r of agg.rows) {
+    const s = stats[r.user_id]
+    if (!s) continue
+    s.unsettledMoney = Number(r.money_stamps) * RATE
+    s.lastStampDate = r.last_stamp_date
+    earned[r.user_id] = Number(r.earned_coupons)
+    used[r.user_id] = Number(r.used_coupons)
+  }
+
+  const paidMoney = {}
+  const paidCoupons = {}
+  for (const p of payouts.rows) {
+    const s = stats[p.user_id]
+    if (!s) continue
+    // 지급액은 음수로 저장돼 있습니다
+    paidMoney[p.user_id] = (paidMoney[p.user_id] || 0) - p.amount
+    paidCoupons[p.user_id] = (paidCoupons[p.user_id] || 0) + p.coupon_amount
+
+    if (p.settled_until && (!s.settledUntil || p.settled_until > s.settledUntil)) {
+      s.settledUntil = p.settled_until
+    }
+    if (s.history.length < 30) {
+      s.history.push({
+        id: p.id,
+        amount: p.amount,
+        coupon_amount: p.coupon_amount,
+        settled_until: p.settled_until,
+        created_at: p.created_at,
+      })
+    }
+  }
+
+  for (const [id, s] of Object.entries(stats)) {
+    s.unsettledMoney -= paidMoney[id] || 0
+    s.usableCoupons = (paidCoupons[id] || 0) - (used[id] || 0)
+    s.waitCoupons = (earned[id] || 0) - (paidCoupons[id] || 0)
+  }
+
+  return stats
+}
+
+// ---------- 액션 ----------
+const actions = {
+  async health() {
+    await pool.query('SELECT 1')
+    return { ok: true }
+  },
+
+  async login(b) {
+    if (typeof b.userId !== 'string' || typeof b.password !== 'string') {
+      throw new ApiError(400, '입력값이 올바르지 않습니다.')
+    }
+    const { rows } = await pool.query(
+      'SELECT id, name, role, password FROM profiles WHERE id = $1',
+      [b.userId]
+    )
+    const row = rows[0]
+    if (!row) throw new ApiError(404, '사용자를 찾을 수 없습니다.')
+    if (!samePassword(row.password, b.password)) throw new ApiError(401, '비밀번호가 틀렸습니다.')
+
+    return {
+      token: await createSession(row.id),
+      userId: row.id,
+      name: row.name,
+      role: row.role,
+    }
+  },
+
+  // 저장된 토큰이 아직 유효한지 확인 (자동 로그인)
+  async me(b) {
+    const u = await currentUser(b.token)
+    return u ? { userId: u.id, role: u.role } : { userId: null }
+  },
+
+  async logout(b) {
+    if (typeof b.token === 'string' && b.token) {
+      await pool.query('DELETE FROM sessions WHERE token = $1', [b.token])
+    }
+    return { ok: true }
+  },
+
+  async change_password(b) {
+    const { userId, currentPassword, newPassword } = b
+    if (
+      typeof userId !== 'string' ||
+      typeof currentPassword !== 'string' ||
+      typeof newPassword !== 'string'
+    ) {
+      throw new ApiError(400, '입력값이 올바르지 않습니다.')
+    }
+    if (!newPassword) throw new ApiError(400, '새 비밀번호를 입력해 주세요.')
+    if (newPassword.length > 60) throw new ApiError(400, '비밀번호가 너무 깁니다.')
+
+    const { rows } = await pool.query('SELECT id, password FROM profiles WHERE id = $1', [userId])
+    const row = rows[0]
+    if (!row) throw new ApiError(404, '사용자를 찾을 수 없습니다.')
+    if (!samePassword(row.password, currentPassword)) {
+      throw new ApiError(401, '현재 비밀번호가 틀렸습니다.')
+    }
+
+    await pool.query(
+      'UPDATE profiles SET password = $1, is_password_set = true WHERE id = $2',
+      [newPassword, userId]
+    )
+    // 다른 기기의 기존 세션은 만료시킵니다
+    await pool.query('DELETE FROM sessions WHERE user_id = $1', [userId])
+
+    return { token: await createSession(userId), userId }
+  },
+
+  async board(b) {
+    await requireUser(b)
+    const week = b.week
+    if (!Array.isArray(week) || week.length === 0 || week.length > 31) {
+      throw new ApiError(400, '주간 날짜가 올바르지 않습니다.')
+    }
+    if (!week.every(isDate)) throw new ApiError(400, '날짜 형식이 올바르지 않습니다.')
+
+    const [stampRes, targetRes, stats] = await Promise.all([
+      pool.query(
+        `SELECT user_id, date_str, stamp_index, is_coupon_used
+           FROM study_stamps WHERE date_str = ANY($1)`,
+        [week]
+      ),
+      pool.query(
+        `SELECT user_id, date_str, target_count
+           FROM daily_targets WHERE date_str = ANY($1)`,
+        [week]
+      ),
+      buildStats(),
+    ])
+
+    return { weekStamps: stampRes.rows, weekTargets: targetRes.rows, stats }
+  },
+
+  async stamp_add(b) {
+    const targetId = typeof b.userId === 'string' ? b.userId : ''
+    const stampIndex = asInt(b.stampIndex)
+    if (!isDate(b.dateStr) || stampIndex === null || stampIndex < 0 || stampIndex > 100) {
+      throw new ApiError(400, '입력값이 올바르지 않습니다.')
+    }
+    await requireCanEdit(b, targetId)
+
+    await pool.query(
+      `INSERT INTO study_stamps (user_id, date_str, stamp_index, is_coupon_used)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (user_id, date_str, stamp_index) DO NOTHING`,
+      [targetId, b.dateStr, stampIndex, Boolean(b.isCouponUsed)]
+    )
+    return { ok: true }
+  },
+
+  async stamp_remove(b) {
+    const targetId = typeof b.userId === 'string' ? b.userId : ''
+    const stampIndex = asInt(b.stampIndex)
+    if (!isDate(b.dateStr) || stampIndex === null) {
+      throw new ApiError(400, '입력값이 올바르지 않습니다.')
+    }
+    await requireCanEdit(b, targetId)
+
+    await pool.query(
+      'DELETE FROM study_stamps WHERE user_id = $1 AND date_str = $2 AND stamp_index = $3',
+      [targetId, b.dateStr, stampIndex]
+    )
+    return { ok: true }
+  },
+
+  async target_set(b) {
+    await requireAdmin(b)
+    const targetId = typeof b.userId === 'string' ? b.userId : ''
+    const count = asInt(b.count)
+    if (!isDate(b.dateStr) || count === null || count < 0 || count > 100) {
+      throw new ApiError(400, '입력값이 올바르지 않습니다.')
+    }
+
+    await pool.query(
+      `INSERT INTO daily_targets (user_id, date_str, target_count)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id, date_str) DO UPDATE SET target_count = EXCLUDED.target_count`,
+      [targetId, b.dateStr, count]
+    )
+    return { ok: true }
+  },
+
+  async payout_add(b) {
+    await requireAdmin(b)
+    const targetId = typeof b.userId === 'string' ? b.userId : ''
+    const amount = asInt(b.amount)
+    const couponAmount = asInt(b.couponAmount ?? 0)
+    const settledUntil = b.settledUntil ?? null
+    if (amount === null || couponAmount === null) throw new ApiError(400, '금액이 올바르지 않습니다.')
+    if (settledUntil !== null && !isDate(settledUntil)) {
+      throw new ApiError(400, '정산 기준일이 올바르지 않습니다.')
+    }
+
+    await pool.query(
+      `INSERT INTO custom_events (user_id, event_type, amount, coupon_amount, settled_until)
+       VALUES ($1, 'payout', $2, $3, $4)`,
+      [targetId, amount, couponAmount, settledUntil]
+    )
+    return { ok: true }
+  },
+}
+
+// ---------- HTTP ----------
+const MAX_BODY = 64 * 1024
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let size = 0
+    const chunks = []
+    req.on('data', c => {
+      size += c.length
+      if (size > MAX_BODY) {
+        reject(new ApiError(413, '요청이 너무 큽니다.'))
+        req.destroy()
+        return
+      }
+      chunks.push(c)
+    })
+    req.on('end', () => {
+      const raw = Buffer.concat(chunks).toString('utf8')
+      if (!raw) return resolve({})
+      try {
+        const parsed = JSON.parse(raw)
+        resolve(parsed && typeof parsed === 'object' ? parsed : {})
+      } catch {
+        reject(new ApiError(400, '요청 형식이 올바르지 않습니다.'))
+      }
+    })
+    req.on('error', reject)
+  })
+}
+
+const server = http.createServer(async (req, res) => {
+  const send = (status, obj) => {
+    const buf = Buffer.from(JSON.stringify(obj), 'utf8')
+    res.writeHead(status, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Length': buf.length,
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+    })
+    res.end(buf)
+  }
+
+  try {
+    const url = new URL(req.url, 'http://localhost')
+    if (req.method !== 'POST') return send(405, { error: 'POST 로 요청해 주세요.' })
+
+    const name = url.searchParams.get('action') || ''
+    const handler = Object.prototype.hasOwnProperty.call(actions, name) ? actions[name] : null
+    if (!handler) return send(404, { error: `알 수 없는 요청입니다: ${name}` })
+
+    const body = await readBody(req)
+    send(200, await handler(body))
+  } catch (e) {
+    if (e instanceof ApiError) return send(e.status, { error: e.message })
+    console.error('[stamp-api]', e)
+    send(500, { error: '서버 오류가 발생했습니다.' })
+  }
+})
+
+server.listen(PORT, '127.0.0.1', () => {
+  console.log(`[stamp-api] listening on 127.0.0.1:${PORT}`)
+})
+
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.on(sig, () => {
+    server.close(() => pool.end().then(() => process.exit(0)))
+    setTimeout(() => process.exit(0), 5000).unref()
+  })
+}
