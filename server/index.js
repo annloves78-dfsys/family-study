@@ -15,11 +15,15 @@ import webpush from 'web-push'
 const PORT = Number(process.env.PORT || 3010)
 const RATE = Number(process.env.RATE || 500)
 const SESSION_DAYS = Number(process.env.SESSION_DAYS || 60)
-const REMINDER_HOUR_KST = Number.isInteger(Number(process.env.REMINDER_HOUR_KST))
-  && Number(process.env.REMINDER_HOUR_KST) >= 0
-  && Number(process.env.REMINDER_HOUR_KST) <= 23
-  ? Number(process.env.REMINDER_HOUR_KST)
-  : 13
+const configuredReminderHours = (
+  process.env.REMINDER_HOURS_KST ||
+  `${process.env.REMINDER_HOUR_KST || 13},21`
+)
+  .split(',')
+  .map(value => Number(value.trim()))
+  .filter(hour => Number.isInteger(hour) && hour >= 0 && hour <= 23)
+const REMINDER_HOURS_KST = [...new Set(configuredReminderHours)].sort((a, b) => a - b)
+if (REMINDER_HOURS_KST.length === 0) REMINDER_HOURS_KST.push(13, 21)
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || ''
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || ''
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@family.anne.ai.kr'
@@ -204,31 +208,29 @@ function hourKST(nowMs = Date.now()) {
   return new Date(nowMs + 9 * 60 * 60 * 1000).getUTCHours()
 }
 
-function millisecondsUntilNextReminder(nowMs = Date.now()) {
+function nextReminderSchedule(nowMs = Date.now()) {
   const kst = new Date(nowMs + 9 * 60 * 60 * 1000)
-  let next = Date.UTC(
-    kst.getUTCFullYear(),
-    kst.getUTCMonth(),
-    kst.getUTCDate(),
-    REMINDER_HOUR_KST,
-    0,
-    0,
-    0
-  )
-  if (next <= kst.getTime()) next += 24 * 60 * 60 * 1000
-  return next - kst.getTime()
+  const dayStart = Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth(), kst.getUTCDate())
+  for (const hour of REMINDER_HOURS_KST) {
+    const next = dayStart + hour * 60 * 60 * 1000
+    if (next > kst.getTime()) return { delay: next - kst.getTime(), hour }
+  }
+  const hour = REMINDER_HOURS_KST[0]
+  const next = dayStart + 24 * 60 * 60 * 1000 + hour * 60 * 60 * 1000
+  return { delay: next - kst.getTime(), hour }
 }
 
 function isGonePushError(error) {
   return error?.statusCode === 404 || error?.statusCode === 410
 }
 
-async function sendMissedReminderToChild(userId, name, dateStr) {
+async function sendMissedReminderToChild(userId, name, dateStr, reminderHour) {
   if (!PUSH_ENABLED) return { sent: 0, skipped: true }
 
   const alreadySent = await pool.query(
-    'SELECT 1 FROM push_delivery_log WHERE user_id = $1 AND date_str = $2',
-    [userId, dateStr]
+    `SELECT 1 FROM push_delivery_log
+      WHERE user_id = $1 AND date_str = $2 AND reminder_hour = $3`,
+    [userId, dateStr, reminderHour]
   )
   if (alreadySent.rowCount > 0) return { sent: 0, skipped: true }
 
@@ -250,7 +252,7 @@ async function sendMissedReminderToChild(userId, name, dateStr) {
     title: '어제 공부 도장을 확인해 주세요',
     body: `${name}님, 어제 찍힌 공부 도장이 없어요. 앱을 열어 기록해 주세요.`,
     url: './',
-    tag: `missed-stamps-${dateStr}`,
+    tag: `missed-stamps-${dateStr}-${reminderHour}`,
     badge: 1,
   })
 
@@ -277,17 +279,17 @@ async function sendMissedReminderToChild(userId, name, dateStr) {
 
   if (sent > 0) {
     await pool.query(
-      `INSERT INTO push_delivery_log (user_id, date_str, success_count)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (user_id, date_str) DO NOTHING`,
-      [userId, dateStr, sent]
+      `INSERT INTO push_delivery_log (user_id, date_str, reminder_hour, success_count)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (user_id, date_str, reminder_hour) DO NOTHING`,
+      [userId, dateStr, reminderHour, sent]
     )
   }
   return { sent, skipped: false }
 }
 
 let reminderRunning = false
-async function runMissedReminders() {
+async function runMissedReminders(reminderHour) {
   if (!PUSH_ENABLED || reminderRunning) return
   reminderRunning = true
   const dateStr = yesterdayKST()
@@ -308,10 +310,10 @@ async function runMissedReminders() {
 
     let sent = 0
     for (const child of rows) {
-      const result = await sendMissedReminderToChild(child.id, child.name, dateStr)
+      const result = await sendMissedReminderToChild(child.id, child.name, dateStr, reminderHour)
       sent += result.sent
     }
-    console.log(`[stamp-api] ${dateStr} 미기록 알림 완료: 아이 ${rows.length}명, 기기 ${sent}대`)
+    console.log(`[stamp-api] ${dateStr} 미기록 알림(KST ${reminderHour}:00) 완료: 아이 ${rows.length}명, 기기 ${sent}대`)
   } catch (error) {
     console.error('[stamp-api] 미기록 알림 실행 실패:', error?.message || error)
   } finally {
@@ -323,18 +325,19 @@ function scheduleMissedReminders() {
   if (!PUSH_ENABLED) return
 
   const scheduleNext = () => {
-    const delay = millisecondsUntilNextReminder()
+    const { delay, hour } = nextReminderSchedule()
     const nextAt = new Date(Date.now() + delay).toISOString()
-    console.log(`[stamp-api] 다음 미기록 알림: ${nextAt} (KST ${REMINDER_HOUR_KST}:00)`)
+    console.log(`[stamp-api] 다음 미기록 알림: ${nextAt} (KST ${hour}:00)`)
     setTimeout(async () => {
-      await runMissedReminders()
+      await runMissedReminders(hour)
       scheduleNext()
     }, delay).unref()
   }
 
-  // 서버가 오후 1시 이후 재시작되었어도 그날 알림을 놓치지 않습니다.
-  if (hourKST() >= REMINDER_HOUR_KST) {
-    runMissedReminders()
+  // 서버가 예약 시간 이후 재시작되었어도 가장 최근 회차는 놓치지 않습니다.
+  const passedHours = REMINDER_HOURS_KST.filter(hour => hourKST() >= hour)
+  if (passedHours.length > 0) {
+    runMissedReminders(passedHours[passedHours.length - 1])
   }
   scheduleNext()
 }
@@ -427,7 +430,7 @@ const actions = {
     return {
       enabled: PUSH_ENABLED,
       publicKey: PUSH_ENABLED ? VAPID_PUBLIC_KEY : '',
-      reminderHourKST: REMINDER_HOUR_KST,
+      reminderHoursKST: REMINDER_HOURS_KST,
     }
   },
 
@@ -460,13 +463,19 @@ const actions = {
       [u.id, endpoint, p256dh, auth]
     )
 
-    // 오후 1시가 지난 뒤 처음 켠 기기도 오늘 알림을 받을 수 있게 한 번 확인합니다.
-    if (hourKST() >= REMINDER_HOUR_KST) {
+    // 예약 시간이 지난 뒤 처음 켠 기기도 가장 최근 회차를 받을 수 있게 확인합니다.
+    const passedHours = REMINDER_HOURS_KST.filter(hour => hourKST() >= hour)
+    if (passedHours.length > 0) {
       const { rows } = await pool.query('SELECT name FROM profiles WHERE id = $1', [u.id])
-      await sendMissedReminderToChild(u.id, rows[0]?.name || u.id, yesterdayKST())
+      await sendMissedReminderToChild(
+        u.id,
+        rows[0]?.name || u.id,
+        yesterdayKST(),
+        passedHours[passedHours.length - 1]
+      )
     }
 
-    return { ok: true, reminderHourKST: REMINDER_HOUR_KST }
+    return { ok: true, reminderHoursKST: REMINDER_HOURS_KST }
   },
 
   async push_unsubscribe(b) {

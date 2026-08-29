@@ -80,6 +80,7 @@ sudo -u postgres psql -d stamp -f deploy/sql/01_schema.sql
 sudo -u postgres psql -d stamp -f deploy/sql/02_data.sql
 sudo -u postgres psql -d stamp -f deploy/sql/03_backfill_settled_until.sql
 sudo -u postgres psql -d stamp -f deploy/sql/04_push_notifications.sql
+sudo -u postgres psql -d stamp -f deploy/sql/05_push_evening_reminder.sql
 ```
 
 세 파일 모두 맨 위에서 **"지금 stamp DB 가 맞는지" 확인하고, 아니면 즉시 멈춥니다.**
@@ -230,7 +231,8 @@ Supabase 때와 달라진 점:
 
 아이 계정으로 앱을 연 뒤 `알림 켜기`를 한 번 눌러야 해당 기기가 등록됩니다.
 등록된 아이 기기에만 매일 한국시간 오후 1시, 전날 도장이 0개일 때 알림을 보냅니다.
-같은 아이에게 같은 날짜 알림은 하루 한 번만 발송합니다.
+오후 9시에도 여전히 도장이 0개이면 한 번 더 알림을 보냅니다.
+같은 아이에게 같은 날짜·시간대 알림은 한 번만 발송합니다.
 
 `/etc/stamp/stamp-api.env`에는 서버에서 생성해 보관한 아래 값이 필요합니다.
 비공개키는 저장소나 클라이언트 코드에 넣지 않습니다.
@@ -239,5 +241,5 @@ Supabase 때와 달라진 점:
 VAPID_PUBLIC_KEY=...
 VAPID_PRIVATE_KEY=...
 VAPID_SUBJECT=mailto:admin@family.anne.ai.kr
-REMINDER_HOUR_KST=13
+REMINDER_HOURS_KST=13,21
 ```

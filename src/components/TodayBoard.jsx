@@ -294,7 +294,7 @@ export default function TodayBoard({ userId, kidId = userId, onLogout, onWeek, i
                   ? '이 기기에서는 앱 알림을 사용할 수 없어요.'
                   : pushStatus === 'unavailable'
                     ? '알림 서버를 준비하고 있어요. 잠시 후 다시 열어 주세요.'
-                    : '어제 도장이 하나도 없으면 오후 1시에 알려줘요.'}
+                    : '어제 도장이 없으면 오후 1시에, 계속 없으면 오후 9시에 다시 알려줘요.'}
             </span>
             {pushError && <span className="push-setup-error">{pushError}</span>}
           </div>

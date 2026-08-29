@@ -26,9 +26,11 @@ CREATE INDEX IF NOT EXISTS idx_push_subscription_user
 CREATE TABLE IF NOT EXISTS push_delivery_log (
   user_id       TEXT        NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   date_str      TEXT        NOT NULL,
+  reminder_hour INTEGER     NOT NULL DEFAULT 13,
   sent_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   success_count INTEGER     NOT NULL DEFAULT 0,
-  PRIMARY KEY (user_id, date_str)
+  PRIMARY KEY (user_id, date_str, reminder_hour),
+  CHECK (reminder_hour BETWEEN 0 AND 23)
 );
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON push_subscriptions, push_delivery_log TO stamp;
