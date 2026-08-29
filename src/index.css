@@ -233,28 +233,6 @@ body {
 }
 
 .btn-child-view:hover { background: #f4f2ff; }
-.btn-child-view.has-alert { box-shadow: 0 0 0 2px rgba(255,94,98,0.3); }
-
-.missed-stamp-alert {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: #ff4f57;
-  color: #fff;
-  font-size: 0.72rem;
-  font-weight: 900;
-  line-height: 1;
-  box-shadow: 0 2px 5px rgba(170,20,30,0.28);
-}
-
-.btn-child-view .missed-stamp-alert {
-  position: absolute;
-  top: -7px;
-  right: -7px;
-}
 
 .week-nav {
   display: flex;
@@ -655,8 +633,6 @@ body {
 
 .kid-tab-icon { font-size: 1.3rem; }
 .kid-tab-lock { font-size: 0.8rem; opacity: 0.7; }
-.kid-tab .missed-stamp-alert { margin-left: 0.1rem; }
-
 /* ===== 지급 현황 ===== */
 .payout-status {
   display: flex;
@@ -800,6 +776,56 @@ body {
   cursor: pointer;
 }
 .today-link.ghost { color: #8a90a6; border-color: #e7e9f2; }
+
+.push-setup {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  padding: 0.8rem;
+  border: 1px solid #cfd7ff;
+  border-radius: 14px;
+  background: #f4f6ff;
+}
+
+.push-setup.warning {
+  border-color: #ffd7a1;
+  background: #fff8ec;
+}
+
+.push-setup-text {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  color: #596181;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.push-setup-text strong {
+  color: #4d5bd8;
+  font-size: 0.9rem;
+}
+
+.push-setup-error { color: #c0392b; }
+
+.push-setup-button {
+  flex: 0 0 auto;
+  padding: 0.55rem 0.7rem;
+  border: 0;
+  border-radius: 10px;
+  background: #667eea;
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.push-setup-button:disabled { opacity: 0.6; cursor: default; }
 
 
 .today-progress {

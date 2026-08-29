@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { fetchBoard, addStamp, removeStamp } from '../api'
+import { fetchBoard, addStamp, removeStamp, getPushConfig, subscribePush } from '../api'
 
 const RATE = 500
 const MAX_STAMPS = 15
@@ -26,6 +26,13 @@ function addDays(dateStr, n) {
   return toLocalDate(d)
 }
 
+function urlBase64ToUint8Array(value) {
+  const padding = '='.repeat((4 - (value.length % 4)) % 4)
+  const base64 = (value + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const raw = window.atob(base64)
+  return Uint8Array.from(raw, ch => ch.charCodeAt(0))
+}
+
 export default function TodayBoard({ userId, kidId = userId, onLogout, onWeek, isPreview = false }) {
   const today = toLocalDate(new Date())
   const yesterday = addDays(today, -1)
@@ -40,6 +47,10 @@ export default function TodayBoard({ userId, kidId = userId, onLogout, onWeek, i
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [couponMode, setCouponMode] = useState(false)
+  const [pushConfig, setPushConfig] = useState(null)
+  const [pushStatus, setPushStatus] = useState('checking')
+  const [pushBusy, setPushBusy] = useState(false)
+  const [pushError, setPushError] = useState('')
 
   const kid = KIDS.find(k => k.id === kidId) || { name: '나', icon: '🙂' }
 
@@ -78,6 +89,56 @@ export default function TodayBoard({ userId, kidId = userId, onLogout, onWeek, i
 
   useEffect(() => { loadData(true) }, [loadData])
 
+  useEffect(() => {
+    if (isPreview) return
+    let cancelled = false
+
+    const checkPush = async () => {
+      if (
+        !('serviceWorker' in navigator) ||
+        !('PushManager' in window) ||
+        !('Notification' in window)
+      ) {
+        if (!cancelled) setPushStatus('unsupported')
+        return
+      }
+
+      try {
+        const config = await getPushConfig()
+        if (cancelled) return
+        setPushConfig(config)
+        if (!config.enabled || !config.publicKey) {
+          setPushStatus('unavailable')
+          return
+        }
+        if (Notification.permission === 'denied') {
+          setPushStatus('denied')
+          return
+        }
+
+        const registration = await navigator.serviceWorker.register(
+          new URL('sw.js', document.baseURI).href
+        )
+        const existing = await registration.pushManager.getSubscription()
+        if (cancelled) return
+        if (existing) {
+          await subscribePush(existing.toJSON())
+          if (!cancelled) setPushStatus('enabled')
+        } else {
+          setPushStatus('available')
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setPushError(e?.message || '알림 상태를 확인하지 못했어요.')
+          setPushStatus('error')
+        }
+      }
+    }
+
+    checkPush()
+    return () => { cancelled = true }
+  }, [isPreview])
+
   const dayStamps = stamps[dateStr] || {}
   const target = targets[dateStr] || 0
   const filled = Object.keys(dayStamps).length
@@ -101,6 +162,37 @@ export default function TodayBoard({ userId, kidId = userId, onLogout, onWeek, i
     } else if (next < days[0]) {
       const end = addDays(next, WINDOW - 1)
       setWindowEnd(end > today ? today : end)
+    }
+  }
+
+  const handleEnablePush = async () => {
+    if (pushBusy || !pushConfig?.publicKey) return
+    setPushBusy(true)
+    setPushError('')
+    try {
+      const permission = await Notification.requestPermission()
+      if (permission !== 'granted') {
+        setPushStatus(permission === 'denied' ? 'denied' : 'available')
+        return
+      }
+
+      const registration = await navigator.serviceWorker.register(
+        new URL('sw.js', document.baseURI).href
+      )
+      let subscription = await registration.pushManager.getSubscription()
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(pushConfig.publicKey),
+        })
+      }
+      await subscribePush(subscription.toJSON())
+      setPushStatus('enabled')
+    } catch (e) {
+      setPushError(e?.message || '알림을 켜지 못했어요.')
+      setPushStatus('error')
+    } finally {
+      setPushBusy(false)
     }
   }
 
@@ -188,6 +280,29 @@ export default function TodayBoard({ userId, kidId = userId, onLogout, onWeek, i
       {isPreview && (
         <div className="today-preview-note">
           👩 관리자가 보는 <b>{kid.name}</b>의 화면입니다 — 아이가 보는 것과 똑같아요
+        </div>
+      )}
+
+      {!isPreview && !['checking', 'enabled'].includes(pushStatus) && (
+        <div className={`push-setup ${pushStatus === 'denied' ? 'warning' : ''}`}>
+          <div className="push-setup-text">
+            <strong>🔔 공부 알림 켜기</strong>
+            <span>
+              {pushStatus === 'denied'
+                ? '알림이 차단되어 있어요. 기기 설정에서 이 앱의 알림을 허용해 주세요.'
+                : pushStatus === 'unsupported'
+                  ? '이 기기에서는 앱 알림을 사용할 수 없어요.'
+                  : pushStatus === 'unavailable'
+                    ? '알림 서버를 준비하고 있어요. 잠시 후 다시 열어 주세요.'
+                    : '어제 도장이 하나도 없으면 오후 1시에 알려줘요.'}
+            </span>
+            {pushError && <span className="push-setup-error">{pushError}</span>}
+          </div>
+          {(pushStatus === 'available' || (pushStatus === 'error' && pushConfig?.publicKey)) && (
+            <button className="push-setup-button" onClick={handleEnablePush} disabled={pushBusy}>
+              {pushBusy ? '켜는 중...' : '알림 켜기'}
+            </button>
+          )}
         </div>
       )}
 

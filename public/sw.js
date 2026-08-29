@@ -7,7 +7,7 @@
 //    -> 새로 배포하면 다음에 열 때 바로 새 화면이 뜹니다.
 //  - GET 이 아닌 요청은 손대지 않습니다.
 
-const VERSION = 'v1'
+const VERSION = 'v2'
 const CACHE = `stamp-${VERSION}`
 
 self.addEventListener('install', (event) => {
@@ -29,6 +29,51 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('message', (event) => {
   if (event.data === 'skipWaiting') self.skipWaiting()
+})
+
+self.addEventListener('push', (event) => {
+  let payload = {}
+  try {
+    payload = event.data?.json() || {}
+  } catch {
+    payload = { body: event.data?.text() || '' }
+  }
+
+  const title = payload.title || '공부 도장판'
+  const options = {
+    body: payload.body || '공부 도장 기록을 확인해 주세요.',
+    icon: './icon-192.png',
+    badge: './icon-192.png',
+    tag: payload.tag || 'study-stamp-reminder',
+    renotify: true,
+    data: { url: payload.url || './' },
+  }
+
+  const tasks = [self.registration.showNotification(title, options)]
+  if (self.navigator?.setAppBadge) {
+    tasks.push(self.navigator.setAppBadge(payload.badge || 1).catch(() => {}))
+  }
+  event.waitUntil(Promise.all(tasks))
+})
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  const targetUrl = new URL(event.notification.data?.url || './', self.location.href).href
+  event.waitUntil(
+    (async () => {
+      if (self.navigator?.clearAppBadge) {
+        await self.navigator.clearAppBadge().catch(() => {})
+      }
+      const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      for (const client of windows) {
+        if ('focus' in client) {
+          await client.navigate(targetUrl).catch(() => {})
+          return client.focus()
+        }
+      }
+      return self.clients.openWindow(targetUrl)
+    })()
+  )
 })
 
 self.addEventListener('fetch', (event) => {

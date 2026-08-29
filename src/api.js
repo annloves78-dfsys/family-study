@@ -41,6 +41,12 @@ export const me = () => call('me')
 
 export const logout = () => call('logout')
 
+// ===== 아이 기기 푸시 알림 =====
+export const getPushConfig = () => call('push_config')
+
+export const subscribePush = (subscription) =>
+  call('push_subscribe', { subscription })
+
 // ===== 보드 =====
 export const fetchBoard = (week) => call('board', { week })
 

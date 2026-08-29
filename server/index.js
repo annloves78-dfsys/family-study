@@ -10,10 +10,26 @@
 import http from 'node:http'
 import crypto from 'node:crypto'
 import pg from 'pg'
+import webpush from 'web-push'
 
 const PORT = Number(process.env.PORT || 3010)
 const RATE = Number(process.env.RATE || 500)
 const SESSION_DAYS = Number(process.env.SESSION_DAYS || 60)
+const REMINDER_HOUR_KST = Number.isInteger(Number(process.env.REMINDER_HOUR_KST))
+  && Number(process.env.REMINDER_HOUR_KST) >= 0
+  && Number(process.env.REMINDER_HOUR_KST) <= 23
+  ? Number(process.env.REMINDER_HOUR_KST)
+  : 13
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || ''
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || ''
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@family.anne.ai.kr'
+const PUSH_ENABLED = Boolean(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY)
+
+if (PUSH_ENABLED) {
+  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY)
+} else {
+  console.warn('[stamp-api] VAPID 키가 없어 푸시 알림이 비활성화됩니다.')
+}
 
 if (!process.env.DATABASE_URL) {
   console.error('DATABASE_URL 환경변수가 없습니다. systemd 유닛의 Environment 를 확인하세요.')
@@ -175,9 +191,152 @@ async function buildStats() {
 }
 
 // 한국 시간 기준 오늘 (서버는 UTC 로 돌 수 있으므로)
-function todayKST() {
-  const now = new Date(Date.now() + 9 * 60 * 60 * 1000)
+function todayKST(nowMs = Date.now()) {
+  const now = new Date(nowMs + 9 * 60 * 60 * 1000)
   return now.toISOString().slice(0, 10)
+}
+
+function yesterdayKST(nowMs = Date.now()) {
+  return todayKST(nowMs - 24 * 60 * 60 * 1000)
+}
+
+function hourKST(nowMs = Date.now()) {
+  return new Date(nowMs + 9 * 60 * 60 * 1000).getUTCHours()
+}
+
+function millisecondsUntilNextReminder(nowMs = Date.now()) {
+  const kst = new Date(nowMs + 9 * 60 * 60 * 1000)
+  let next = Date.UTC(
+    kst.getUTCFullYear(),
+    kst.getUTCMonth(),
+    kst.getUTCDate(),
+    REMINDER_HOUR_KST,
+    0,
+    0,
+    0
+  )
+  if (next <= kst.getTime()) next += 24 * 60 * 60 * 1000
+  return next - kst.getTime()
+}
+
+function isGonePushError(error) {
+  return error?.statusCode === 404 || error?.statusCode === 410
+}
+
+async function sendMissedReminderToChild(userId, name, dateStr) {
+  if (!PUSH_ENABLED) return { sent: 0, skipped: true }
+
+  const alreadySent = await pool.query(
+    'SELECT 1 FROM push_delivery_log WHERE user_id = $1 AND date_str = $2',
+    [userId, dateStr]
+  )
+  if (alreadySent.rowCount > 0) return { sent: 0, skipped: true }
+
+  const missed = await pool.query(
+    'SELECT 1 FROM study_stamps WHERE user_id = $1 AND date_str = $2 LIMIT 1',
+    [userId, dateStr]
+  )
+  if (missed.rowCount > 0) return { sent: 0, skipped: true }
+
+  const subscriptions = await pool.query(
+    `SELECT id, endpoint, p256dh, auth
+       FROM push_subscriptions
+      WHERE user_id = $1`,
+    [userId]
+  )
+  if (subscriptions.rowCount === 0) return { sent: 0, skipped: true }
+
+  const payload = JSON.stringify({
+    title: '어제 공부 도장을 확인해 주세요',
+    body: `${name}님, 어제 찍힌 공부 도장이 없어요. 앱을 열어 기록해 주세요.`,
+    url: './',
+    tag: `missed-stamps-${dateStr}`,
+    badge: 1,
+  })
+
+  let sent = 0
+  for (const sub of subscriptions.rows) {
+    try {
+      await webpush.sendNotification(
+        {
+          endpoint: sub.endpoint,
+          keys: { p256dh: sub.p256dh, auth: sub.auth },
+        },
+        payload,
+        { TTL: 12 * 60 * 60, urgency: 'normal' }
+      )
+      sent += 1
+    } catch (error) {
+      if (isGonePushError(error)) {
+        await pool.query('DELETE FROM push_subscriptions WHERE id = $1', [sub.id])
+      } else {
+        console.error(`[stamp-api] push failed for ${userId}:`, error?.message || error)
+      }
+    }
+  }
+
+  if (sent > 0) {
+    await pool.query(
+      `INSERT INTO push_delivery_log (user_id, date_str, success_count)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id, date_str) DO NOTHING`,
+      [userId, dateStr, sent]
+    )
+  }
+  return { sent, skipped: false }
+}
+
+let reminderRunning = false
+async function runMissedReminders() {
+  if (!PUSH_ENABLED || reminderRunning) return
+  reminderRunning = true
+  const dateStr = yesterdayKST()
+  try {
+    const { rows } = await pool.query(
+      `SELECT p.id, p.name
+         FROM profiles p
+        WHERE p.role = 'child'
+          AND EXISTS (
+            SELECT 1 FROM push_subscriptions ps WHERE ps.user_id = p.id
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM study_stamps s
+             WHERE s.user_id = p.id AND s.date_str = $1
+          )`,
+      [dateStr]
+    )
+
+    let sent = 0
+    for (const child of rows) {
+      const result = await sendMissedReminderToChild(child.id, child.name, dateStr)
+      sent += result.sent
+    }
+    console.log(`[stamp-api] ${dateStr} 미기록 알림 완료: 아이 ${rows.length}명, 기기 ${sent}대`)
+  } catch (error) {
+    console.error('[stamp-api] 미기록 알림 실행 실패:', error?.message || error)
+  } finally {
+    reminderRunning = false
+  }
+}
+
+function scheduleMissedReminders() {
+  if (!PUSH_ENABLED) return
+
+  const scheduleNext = () => {
+    const delay = millisecondsUntilNextReminder()
+    const nextAt = new Date(Date.now() + delay).toISOString()
+    console.log(`[stamp-api] 다음 미기록 알림: ${nextAt} (KST ${REMINDER_HOUR_KST}:00)`)
+    setTimeout(async () => {
+      await runMissedReminders()
+      scheduleNext()
+    }, delay).unref()
+  }
+
+  // 서버가 오후 1시 이후 재시작되었어도 그날 알림을 놓치지 않습니다.
+  if (hourKST() >= REMINDER_HOUR_KST) {
+    runMissedReminders()
+  }
+  scheduleNext()
 }
 
 // 그날의 진행 상황 (위젯 응답용)
@@ -259,6 +418,67 @@ const actions = {
     if (typeof b.token === 'string' && b.token) {
       await pool.query('DELETE FROM sessions WHERE token = $1', [b.token])
     }
+    return { ok: true }
+  },
+
+  async push_config(b) {
+    const u = await requireUser(b)
+    if (u.role !== 'child') throw new ApiError(403, '아이 계정에서만 알림을 설정할 수 있습니다.')
+    return {
+      enabled: PUSH_ENABLED,
+      publicKey: PUSH_ENABLED ? VAPID_PUBLIC_KEY : '',
+      reminderHourKST: REMINDER_HOUR_KST,
+    }
+  },
+
+  async push_subscribe(b) {
+    const u = await requireUser(b)
+    if (u.role !== 'child') throw new ApiError(403, '아이 계정에서만 알림을 설정할 수 있습니다.')
+    if (!PUSH_ENABLED) throw new ApiError(503, '푸시 알림이 아직 준비되지 않았습니다.')
+
+    const subscription = b.subscription
+    const endpoint = subscription?.endpoint
+    const p256dh = subscription?.keys?.p256dh
+    const auth = subscription?.keys?.auth
+    if (
+      typeof endpoint !== 'string' || endpoint.length < 20 || endpoint.length > 4096 ||
+      !endpoint.startsWith('https://') ||
+      typeof p256dh !== 'string' || p256dh.length < 20 || p256dh.length > 512 ||
+      typeof auth !== 'string' || auth.length < 8 || auth.length > 256
+    ) {
+      throw new ApiError(400, '알림 기기 정보가 올바르지 않습니다.')
+    }
+
+    await pool.query(
+      `INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (endpoint) DO UPDATE
+         SET user_id = EXCLUDED.user_id,
+             p256dh = EXCLUDED.p256dh,
+             auth = EXCLUDED.auth,
+             updated_at = NOW()`,
+      [u.id, endpoint, p256dh, auth]
+    )
+
+    // 오후 1시가 지난 뒤 처음 켠 기기도 오늘 알림을 받을 수 있게 한 번 확인합니다.
+    if (hourKST() >= REMINDER_HOUR_KST) {
+      const { rows } = await pool.query('SELECT name FROM profiles WHERE id = $1', [u.id])
+      await sendMissedReminderToChild(u.id, rows[0]?.name || u.id, yesterdayKST())
+    }
+
+    return { ok: true, reminderHourKST: REMINDER_HOUR_KST }
+  },
+
+  async push_unsubscribe(b) {
+    const u = await requireUser(b)
+    const endpoint = b.endpoint
+    if (typeof endpoint !== 'string' || endpoint.length > 4096) {
+      throw new ApiError(400, '알림 기기 정보가 올바르지 않습니다.')
+    }
+    await pool.query(
+      'DELETE FROM push_subscriptions WHERE user_id = $1 AND endpoint = $2',
+      [u.id, endpoint]
+    )
     return { ok: true }
   },
 
@@ -514,6 +734,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`[stamp-api] listening on 127.0.0.1:${PORT}`)
+  scheduleMissedReminders()
 })
 
 for (const sig of ['SIGTERM', 'SIGINT']) {
