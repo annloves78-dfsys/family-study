@@ -218,6 +218,44 @@ body {
   font-size: 0.85rem;
 }
 
+.btn-child-view {
+  position: relative;
+  padding: 0.4rem 0.9rem;
+  background: #fff;
+  color: #5b61c9;
+  border: 1px solid rgba(255,255,255,0.85);
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.btn-child-view:hover { background: #f4f2ff; }
+.btn-child-view.has-alert { box-shadow: 0 0 0 2px rgba(255,94,98,0.3); }
+
+.missed-stamp-alert {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ff4f57;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: 0 2px 5px rgba(170,20,30,0.28);
+}
+
+.btn-child-view .missed-stamp-alert {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+}
+
 .week-nav {
   display: flex;
   align-items: center;
@@ -570,7 +608,10 @@ body {
 /* ===== 반응형 ===== */
 @media (max-width: 480px) {
   .board-header h1 { font-size: 1.1rem; }
+  .header-right { gap: 0.35rem; }
   .user-badge { display: none; }
+  .btn-child-view,
+  .btn-logout { padding: 0.38rem 0.55rem; font-size: 0.75rem; }
   .kid-section { padding: 1rem; }
   .week-target-row { font-size: 0.85rem; }
 }
@@ -614,6 +655,7 @@ body {
 
 .kid-tab-icon { font-size: 1.3rem; }
 .kid-tab-lock { font-size: 0.8rem; opacity: 0.7; }
+.kid-tab .missed-stamp-alert { margin-left: 0.1rem; }
 
 /* ===== 지급 현황 ===== */
 .payout-status {

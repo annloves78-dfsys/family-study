@@ -104,11 +104,12 @@ export default function WeeklyBoard({ userId, onLogout, onToday, onPreview, init
   yesterdayObj.setDate(todayObj.getDate() - 1)
   const today = toLocalDate(todayObj)
   const yesterday = toLocalDate(yesterdayObj)
+  const requestedDays = Array.from(new Set([...weekDays, yesterday]))
 
   const loadData = useCallback(async (isInitial = false) => {
     if (isInitial) setLoading(true)
     try {
-      const data = await fetchBoard(weekDays)
+      const data = await fetchBoard(requestedDays)
 
       // 이번 주 도장
       const stampMap = {}
@@ -138,7 +139,7 @@ export default function WeeklyBoard({ userId, onLogout, onToday, onPreview, init
       setLoadError(e?.message || '데이터를 불러오지 못했습니다.')
     }
     if (isInitial) setLoading(false)
-  }, [weekDays.join(',')])
+  }, [requestedDays.join(',')])
 
   useEffect(() => { loadData(true) }, [loadData])
 
@@ -319,6 +320,14 @@ export default function WeeklyBoard({ userId, onLogout, onToday, onPreview, init
   const kidStats = stats[kid.id] || { unsettledMoney: 0, usableCoupons: 0, waitCoupons: 0, settledUntil: null, history: [] }
   const hasUnsettled = kidStats.unsettledMoney !== 0 || kidStats.waitCoupons > 0
   const canEditKid = isAdmin || kid.id === userId
+  const missedYesterdayKidIds = new Set(
+    !loading && !loadError
+      ? KIDS
+          .filter(k => Object.keys(stamps[`${k.id}_${yesterday}`] || {}).length === 0)
+          .map(k => k.id)
+      : []
+  )
+  const activeKidMissedYesterday = missedYesterdayKidIds.has(kid.id)
 
   return (
     <div className="board-page">
@@ -331,6 +340,20 @@ export default function WeeklyBoard({ userId, onLogout, onToday, onPreview, init
           </span>
           {onToday && (
             <button className="btn-today" onClick={onToday}>오늘 화면</button>
+          )}
+          {isAdmin && onPreview && (
+            <button
+              className={`btn-child-view ${activeKidMissedYesterday ? 'has-alert' : ''}`}
+              onClick={() => onPreview(kid.id)}
+              title={activeKidMissedYesterday
+                ? `${kid.name}: 어제 도장 미기록`
+                : `${kid.name} 아이 화면 보기`}
+            >
+              아이 화면 보기
+              {activeKidMissedYesterday && (
+                <span className="missed-stamp-alert" aria-label={`${kid.name} 어제 도장 미기록`}>!</span>
+              )}
+            </button>
           )}
           <button className="btn-logout" onClick={onLogout}>로그아웃</button>
         </div>
@@ -346,6 +369,9 @@ export default function WeeklyBoard({ userId, onLogout, onToday, onPreview, init
           >
             <span className="kid-tab-icon">{k.icon}</span>
             <span className="kid-tab-name">{k.name}</span>
+            {isAdmin && missedYesterdayKidIds.has(k.id) && (
+              <span className="missed-stamp-alert" title={`${k.name}: 어제 도장 미기록`}>!</span>
+            )}
             {!isAdmin && k.id !== userId && <span className="kid-tab-lock">🔒</span>}
           </button>
         ))}
@@ -378,16 +404,6 @@ export default function WeeklyBoard({ userId, onLogout, onToday, onPreview, init
                 {couponMode[kid.id] ? '🎫 쿠폰 모드 ON' : `🎟 사용가능: ${kidStats.usableCoupons}장`}
                 <span className="coupon-wait">(대기: {kidStats.waitCoupons})</span>
               </button>
-
-              {isAdmin && onPreview && (
-                <button
-                  className="btn-preview"
-                  onClick={() => onPreview(kid.id)}
-                  title="아이가 보는 화면을 그대로 봅니다"
-                >
-                  아이 화면 보기
-                </button>
-              )}
 
               {isAdmin && SHOW_WIDGET_SETUP && (
                 <button
