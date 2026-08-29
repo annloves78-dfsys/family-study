@@ -395,7 +395,7 @@ body {
 .stamp-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 480px;
+  min-width: 840px;
 }
 
 .stamp-table th {
@@ -406,26 +406,40 @@ body {
   font-size: 0.82rem;
 }
 
-.stamp-table th.today-col { background: #ffe8f5; }
+.day-header {
+  width: 58px;
+}
 
-.row-num-header {
-  width: 36px;
+.target-header {
+  width: 54px;
+}
+
+.stamp-num-header {
+  width: 38px;
   color: #999;
   font-size: 0.75rem;
   font-weight: 500;
 }
 
-.row-num {
+.summary-header {
+  width: 88px;
+}
+
+.day-row-header {
+  padding: 0.35rem 0.25rem;
   text-align: center;
-  font-size: 0.72rem;
-  color: #aaa;
-  font-weight: 600;
-  padding: 0 2px;
-  width: 28px;
+  background: #f8f9ff;
+  border: 1px solid #edf0ff;
 }
 
 .day-label { font-weight: 700; color: #667eea; }
 .date-label { font-size: 0.72rem; color: #888; margin-top: 1px; }
+
+.target-cell {
+  padding: 0.2rem;
+  text-align: center;
+  border: 1px solid #f0f0f0;
+}
 
 /* 관리자 목표 입력 (헤더 안) */
 .target-cell-input {
@@ -437,7 +451,6 @@ body {
   font-size: 0.78rem;
   text-align: center;
   outline: none;
-  margin-top: 3px;
   background: white;
 }
 .target-cell-input:focus { border-color: #667eea; }
@@ -447,18 +460,19 @@ body {
   font-size: 0.78rem;
   color: #667eea;
   font-weight: 700;
-  margin-top: 3px;
 }
 
 .stamp-cell {
   text-align: center;
   padding: 1px;
   border: 1px solid #f0f0f0;
-  height: 30px;
-  width: 44px;
+  height: 42px;
+  width: 38px;
 }
 
-.stamp-cell.today-col { background: #fff5fc; }
+.today-row > * { background: #fff5fc; }
+.today-row > .day-row-header,
+.today-row > .day-summary { background: #ffe8f5; }
 .stamp-cell.in-range { cursor: pointer; }
 .stamp-cell.in-range:hover { background: #f0f4ff; }
 .stamp-cell.out-range { cursor: pointer; background: #fafafa; }
@@ -524,16 +538,13 @@ body {
   font-weight: normal;
 }
 
-/* ===== 주간 요약 (tfoot) ===== */
-.week-summary-row td {
-  padding: 0.5rem 0.2rem;
+/* ===== 요일별 요약 (오른쪽 열) ===== */
+.day-summary {
+  padding: 0.35rem 0.25rem;
   text-align: center;
   background: #f8f9ff;
-  border-top: 2px solid #e8ecff;
-}
-
-.week-summary-row .today-summary {
-  background: #ffe8f5;
+  border: 1px solid #e8ecff;
+  white-space: nowrap;
 }
 
 .summary-count {

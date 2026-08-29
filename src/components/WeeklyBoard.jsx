@@ -3,6 +3,7 @@ import { fetchBoard, addStamp, removeStamp, setTarget, addPayout, widgetToken } 
 
 const RATE = 500
 const MAX_STAMPS = 15
+const SHOW_WIDGET_SETUP = false
 
 const KIDS = [
   { id: 'yoonseo', name: '윤서', icon: '👧' },
@@ -388,7 +389,7 @@ export default function WeeklyBoard({ userId, onLogout, onToday, onPreview, init
                 </button>
               )}
 
-              {isAdmin && (
+              {isAdmin && SHOW_WIDGET_SETUP && (
                 <button
                   className="btn-preview"
                   onClick={() => handleWidget(kid)}
@@ -450,40 +451,51 @@ export default function WeeklyBoard({ userId, onLogout, onToday, onPreview, init
             <table className="stamp-table">
               <thead>
                 <tr>
-                  <th className="row-num-header">시간</th>
-                  {weekDays.map((d, i) => (
-                    <th key={d} className={d === today ? 'today-col' : ''}>
-                      <div className="day-label">{DAY_LABELS[i]}</div>
-                      <div className="date-label">{d.slice(5)}</div>
-                      {isAdmin ? (
-                        <input
-                          type="number"
-                          min="0"
-                          max={MAX_STAMPS}
-                          className="target-cell-input"
-                          value={targetInputs[`${kid.id}_${d}`] ?? ''}
-                          onChange={e => setTargetInputs(prev => ({
-                            ...prev, [`${kid.id}_${d}`]: e.target.value
-                          }))}
-                          onBlur={() => handleTargetSave(kid.id, d)}
-                          onKeyDown={e => e.key === 'Enter' && handleTargetSave(kid.id, d)}
-                          placeholder="0h"
-                        />
-                      ) : (
-                        <div className="target-display">{targets[`${kid.id}_${d}`] || 0}h</div>
-                      )}
-                    </th>
+                  <th className="day-header">요일</th>
+                  <th className="target-header">목표</th>
+                  {Array.from({ length: MAX_STAMPS }, (_, si) => (
+                    <th key={si} className="stamp-num-header">{si + 1}</th>
                   ))}
+                  <th className="summary-header">결과</th>
                 </tr>
               </thead>
               <tbody>
-                {Array.from({ length: MAX_STAMPS }, (_, si) => (
-                  <tr key={si}>
-                    <td className="row-num">{si + 1}</td>
-                    {weekDays.map(dateStr => {
-                      const key = `${kid.id}_${dateStr}`
-                      const target = targets[key] || 0
-                      const dayStamps = stamps[key] || {}
+                {weekDays.map((dateStr, dayIndex) => {
+                  const key = `${kid.id}_${dateStr}`
+                  const target = targets[key] || 0
+                  const dayStamps = stamps[key] || {}
+                  const moneyCount = Object.keys(dayStamps).filter(i => parseInt(i) < target).length
+                  const earnedCoupons = Object.keys(dayStamps).filter(i => parseInt(i) >= target).length
+                  const isPaid = kidStats.settledUntil && dateStr <= kidStats.settledUntil
+                  const isTodayRow = dateStr === today
+
+                  return (
+                    <tr key={dateStr} className={isTodayRow ? 'today-row' : ''}>
+                      <th scope="row" className="day-row-header">
+                        <div className="day-label">{DAY_LABELS[dayIndex]}</div>
+                        <div className="date-label">{dateStr.slice(5)}</div>
+                      </th>
+                      <td className="target-cell">
+                        {isAdmin ? (
+                          <input
+                            type="number"
+                            min="0"
+                            max={MAX_STAMPS}
+                            className="target-cell-input"
+                            value={targetInputs[key] ?? ''}
+                            onChange={e => setTargetInputs(prev => ({
+                              ...prev, [key]: e.target.value
+                            }))}
+                            onBlur={() => handleTargetSave(kid.id, dateStr)}
+                            onKeyDown={e => e.key === 'Enter' && handleTargetSave(kid.id, dateStr)}
+                            placeholder="0h"
+                            aria-label={`${DAY_LABELS[dayIndex]}요일 목표 시간`}
+                          />
+                        ) : (
+                          <div className="target-display">{target}h</div>
+                        )}
+                      </td>
+                      {Array.from({ length: MAX_STAMPS }, (_, si) => {
                       const filledData = dayStamps[si]
                       const isFilled = filledData !== undefined
                       const isCouponUsed = isFilled && filledData.isCouponUsed
@@ -496,8 +508,8 @@ export default function WeeklyBoard({ userId, onLogout, onToday, onPreview, init
 
                       return (
                         <td
-                          key={dateStr}
-                          className={`stamp-cell ${dateStr === today ? 'today-col' : ''} ${withinTarget ? 'in-range' : 'out-range'}`}
+                          key={si}
+                          className={`stamp-cell ${withinTarget ? 'in-range' : 'out-range'}`}
                           onClick={() => canClick && handleStampClick(kid.id, dateStr, si)}
                           style={{ opacity: isProcessing ? 0.6 : 1, cursor: canClick ? 'pointer' : 'default' }}
                         >
@@ -512,31 +524,17 @@ export default function WeeklyBoard({ userId, onLogout, onToday, onPreview, init
                           )}
                         </td>
                       )
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="week-summary-row">
-                  <td></td>
-                  {weekDays.map(dateStr => {
-                    const key = `${kid.id}_${dateStr}`
-                    const target = targets[key] || 0
-                    const dayStamps = stamps[key] || {}
-                    const moneyCount = Object.keys(dayStamps).filter(i => parseInt(i) < target).length
-                    const earnedCoupons = Object.keys(dayStamps).filter(i => parseInt(i) >= target).length
-                    const isPaid = kidStats.settledUntil && dateStr <= kidStats.settledUntil
-                    return (
-                      <td key={dateStr} className={`day-summary ${dateStr === today ? 'today-summary' : ''}`}>
+                      })}
+                      <td className="day-summary">
                         <div className="summary-count">{moneyCount}/{target}h</div>
                         <div className="summary-money">{(moneyCount * RATE).toLocaleString()}원</div>
                         {earnedCoupons > 0 && <div className="summary-coupon">⭐+{earnedCoupons}</div>}
                         {isPaid && <div className="summary-paid">지급완료</div>}
                       </td>
-                    )
-                  })}
-                </tr>
-              </tfoot>
+                    </tr>
+                  )
+                })}
+              </tbody>
             </table>
           </div>
         </div>
