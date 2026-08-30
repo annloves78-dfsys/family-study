@@ -121,6 +121,20 @@ body {
 
 .pw-input:focus { border-color: #667eea; }
 
+.credential-form { display: contents; }
+
+.password-username-context {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .error-msg {
   color: #e53e3e;
   font-size: 0.9rem;
