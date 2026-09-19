@@ -257,9 +257,10 @@ export default function TodayBoard({ userId, kidId = userId, onLogout, onWeek, i
     const st = stamps[d] || {}
     const tg = targets[d] || 0
     const inTarget = Object.keys(st).filter(i => Number(i) < tg).length
-    return { date: d, target: tg, done: inTarget, ratio: tg > 0 ? inTarget / tg : 0 }
+    return { date: d, target: tg, done: inTarget, total: Object.keys(st).length, ratio: tg > 0 ? inTarget / tg : 0 }
   })
-  const windowHours = stripDays.reduce((sum, d) => sum + d.done, 0)
+  // ⭐ 도 한 시간이고 돈도 받습니다
+  const windowHours = stripDays.reduce((sum, d) => sum + d.total, 0)
   const windowMoney = windowHours * RATE
 
   return (
@@ -386,7 +387,7 @@ export default function TodayBoard({ userId, kidId = userId, onLogout, onWeek, i
       <div className="today-summary">
         <div className="today-card">
           <div className="today-card-label">{dayWord} 번 돈</div>
-          <div className="today-card-value">{(doneInTarget * RATE).toLocaleString()}원</div>
+          <div className="today-card-value">{(filled * RATE).toLocaleString()}원</div>
         </div>
         <div className="today-card">
           <div className="today-card-label">아직 못 받은 돈</div>

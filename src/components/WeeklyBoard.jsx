@@ -524,7 +524,7 @@ export default function WeeklyBoard({ userId, onLogout, onToday, onPreview, init
                       })}
                       <td className="day-summary">
                         <div className="summary-count">{moneyCount}/{target}h</div>
-                        <div className="summary-money">{(moneyCount * RATE).toLocaleString()}원</div>
+                        <div className="summary-money">{(Object.keys(dayStamps).length * RATE).toLocaleString()}원</div>
                         {earnedCoupons > 0 && <div className="summary-coupon">⭐+{earnedCoupons}</div>}
                         {isPaid && <div className="summary-paid">지급완료</div>}
                       </td>

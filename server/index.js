@@ -122,7 +122,8 @@ async function buildStats() {
     pool.query("SELECT id FROM profiles WHERE role = 'child'"),
     pool.query(
       `SELECT s.user_id,
-              COUNT(*) FILTER (WHERE s.stamp_index <  COALESCE(t.target_count, 0)) AS money_stamps,
+              -- 모든 도장이 돈: 목표 안 도장 + ⭐(시간외, 쿠폰도 따로 받음)
+              COUNT(*) AS money_stamps,
               COUNT(*) FILTER (WHERE s.stamp_index <  COALESCE(t.target_count, 0) AND s.is_coupon_used) AS used_coupons,
               COUNT(*) FILTER (WHERE s.stamp_index >= COALESCE(t.target_count, 0)) AS earned_coupons,
               MAX(s.date_str) AS last_stamp_date
